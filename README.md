@@ -47,7 +47,8 @@ Requirements: Linux, `g++` with C++17 support, and a terminal. Nothing else.
     ./build.sh
 
     ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm)
-    ./show/show                            the show (q quits, n or space: next scene)
+    ./show/show                            the show (q quits, n or space: next scene,
+                                           h: hold the scene that is up, h again: let go)
 
 Options, for both programs: `--fps N` (default 30), `--no-color`, `--cols N --rows N`.
 The scene program also has `--loop` (keep going after its 24 seconds, no restart) and
@@ -65,7 +66,9 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
 
 `show` plays the bonfire, the moon, the fireworks, the black hole and the thunderstorm
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
-`FADE_SECONDS` in `show/show.cpp`).
+`FADE_SECONDS` in `show/show.cpp`). Press `h` to hold the scene that is up: the
+status line shows `[HOLD]` and the show stays on it (it keeps animating, and `n` still
+moves on by hand) until you press `h` again.
 
 ## Windows
 

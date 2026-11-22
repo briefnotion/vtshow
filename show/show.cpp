@@ -7,6 +7,11 @@
 // the Display picks the letters for the mixture. A press of n during a fade is
 // ignored.
 //
+// h holds the scene that is up: the timer no longer moves on (the status line shows
+// [HOLD]). The scene keeps animating, and n still moves to the next one by hand. A
+// fade already under way finishes. Press h again to let go; the scene then gets a
+// full STAY_SECONDS before the next fade.
+//
 //   ./build.sh          (compiles this file together with the scenes, with
 //                        -DVTSHOW_NO_MAIN so the scenes leave out their own main)
 //   ./show/show         options: --fps N  --no-color  --cols N --rows N
@@ -21,8 +26,17 @@
 
 #include "../scenes.h"
 
-static const double STAY_SECONDS = 30.0;   // a scene on screen on its own, before the next fade starts
-static const double FADE_SECONDS = 10.0;   // the cross-fade between two scenes
+// A scene on screen on its own, before the next fade starts, and the length of the
+// cross-fade. Compile with -DVTSHOW_STAY_SECONDS=5 -DVTSHOW_FADE_SECONDS=2 to try
+// other values without editing this file.
+#ifndef VTSHOW_STAY_SECONDS
+#define VTSHOW_STAY_SECONDS 30.0
+#endif
+#ifndef VTSHOW_FADE_SECONDS
+#define VTSHOW_FADE_SECONDS 10.0
+#endif
+static const double STAY_SECONDS = VTSHOW_STAY_SECONDS;
+static const double FADE_SECONDS = VTSHOW_FADE_SECONDS;
 
 int main(int argc, char** argv) {
     vtscreen::Options o;
@@ -53,13 +67,19 @@ int main(int argc, char** argv) {
     double switched = 0;                // when the last fade started
     double settled = 0;                 // when the scene on screen was last alone on it
     bool fading = false;
+    bool hold = false;                  // h: stay on this scene
     vtscreen::Picture mixed;
     while (!display.stopping()) {
         double t = display.time();
 
-        bool flip = !fading && t - settled >= STAY_SECONDS;
-        for (char key; (key = display.next_key()) != 0;)
+        bool flip = !fading && !hold && t - settled >= STAY_SECONDS;
+        for (char key; (key = display.next_key()) != 0;) {
             if (!fading && (key == 'n' || key == 'N' || key == ' ')) flip = true;
+            if (key == 'h' || key == 'H') {
+                hold = !hold;
+                if (!hold) { settled = t; flip = false; }   // let go: a full stay again
+            }
+        }
         if (count < 2) flip = false;                 // one scene: nothing to switch to
         if (flip) { from = on; on = (on + 1) % count; switched = t; fading = true; }
 
@@ -73,7 +93,7 @@ int main(int argc, char** argv) {
         // is more visible
         const vtscreen::Scene* lead = (fading && pct < 0.5) ? scenes[from].get() : scenes[on].get();
         vtscreen::Info info = lead->info();
-        std::string title = std::string(info.title) + "  [n]";
+        std::string title = std::string(info.title) + (hold ? "  [HOLD]" : "  [n h]");
         info.title = title.c_str();
         display.hash_letters = info.hash_letters;
 
