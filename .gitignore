@@ -2,5 +2,9 @@
 ports/
 
 # built programs
+bonfire/bonfire
+moonphases/moonphases
+starburst/starburst
+singularity/singularity
 thunderstorm/thunderstorm
 show/show

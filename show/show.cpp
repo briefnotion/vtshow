@@ -1,6 +1,6 @@
-// show - the scenes in one program, one after the other: with the scenes in
-// ports/ present, campfire, moon, fireworks, black hole and thunderstorm; without
-// them, just the thunderstorm.
+// show - the scenes in one program, one after the other: bonfire, moonphases,
+// starburst, singularity and thunderstorm, and, with the scenes in ports/ present,
+// those first.
 //
 // One scene is on screen. After STAY_SECONDS it switches to the next, or at once
 // when you press n (or space); q quits. A switch is a FADE_SECONDS cross-fade: the two pictures' brightness and colour are mixed cell by cell
@@ -46,6 +46,10 @@ int main(int argc, char** argv) {
     scenes.push_back(make_fireworks());
     scenes.push_back(make_blackhole());
 #endif
+    scenes.push_back(make_bonfire());
+    scenes.push_back(make_moonphases());
+    scenes.push_back(make_starburst());
+    scenes.push_back(make_singularity());
     scenes.push_back(make_thunderstorm());
     const int count = (int)scenes.size();
 

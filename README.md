@@ -4,8 +4,21 @@ Animations made of letters, drawn in a terminal. A small header-only C++ library
 (`vtscreen`) turns a picture of brightness and colour into letters and sends only
 what changed, and `show` plays scenes one after another with cross-fades.
 
-Included scene: a thunderstorm (storm clouds in perspective, drizzle, distant rain
-curtains, lightning at different distances, thunder arriving after the flash).
+Included scenes:
+
+- `bonfire`: a fire on the ground, with flames that lick and sway in a breeze, a
+  warm glow on the ground, rising sparks and specks of ash.
+- `moonphases`: a moon on a starry sky that goes through a whole cycle of phases in
+  24 seconds, with earthshine on the dark side, dark seas and craters.
+- `starburst`: fireworks over a night sky: shells that climb with a glowing trail,
+  bursts in several styles (peony, chrysanthemum, ring, willow, double burst) whose
+  sparks slow in the air, droop and cool through their colours, and a finale.
+- `singularity`: a black hole with a glowing, turning accretion disk seen at a tilt,
+  brighter on the side moving towards us, light from behind the hole bent over and
+  under it, and stars bent and stretched round it.
+- `thunderstorm`: storm clouds in perspective, drizzle, distant rain curtains,
+  lightning at different distances, thunder arriving after the flash.
+
 You can write more; see "Writing a scene".
 
 ## Credit
@@ -17,11 +30,13 @@ time, comes from the **python.animate** YouTube channel:
 **https://www.youtube.com/@python.animate**
 
 The table of letter groups (`LEVELS` in `vtscreen/vtscreen.h`) is the channel's.
-Everything else in this repo, including the thunderstorm, was written for this
-project, with Claude. This is an unofficial personal project, not affiliated with
-or endorsed by the channel. I have also made C++ ports of some of the channel's
-animations for my own use. They are not included here because the author has not
-published a licence for their code.
+Everything else in this repo, including the bonfire, moonphases, starburst,
+singularity and thunderstorm scenes, was written for this project, with Claude.
+Those scenes are original, not copies or translations of anything by the channel.
+This is an unofficial personal project, not affiliated with or endorsed by the
+channel. I have also made C++ ports of some of the channel's animations for my own
+use. They are not included here because the author has not published a licence for
+their code.
 
 ## Build and run
 
@@ -29,7 +44,7 @@ Requirements: Linux, `g++` with C++17 support, and a terminal. Nothing else.
 
     ./build.sh
 
-    ./thunderstorm/thunderstorm --loop     one scene on its own
+    ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm)
     ./show/show                            the show (q quits, n or space: next scene)
 
 Options, for both programs: `--fps N` (default 30), `--no-color`, `--cols N --rows N`.
@@ -46,10 +61,10 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
   for example `29.9/30 fps`. If the first number is lower, the program or the
   terminal is not keeping up.
 
-With only the thunderstorm there is nothing to switch to, so `show` just plays it.
-If a `ports/` folder with more scenes is present, `build.sh` builds them in and the
-show cycles through all of them: 30 seconds alone on screen, then a 10 second
-cross-fade (`STAY_SECONDS` and `FADE_SECONDS` in `show/show.cpp`).
+`show` plays the bonfire, the moon, the fireworks, the black hole and the thunderstorm
+in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
+`FADE_SECONDS` in `show/show.cpp`). If a `ports/` folder with more scenes is present,
+`build.sh` builds them in as well and they come first.
 
 ## How it fits together
 
@@ -74,9 +89,9 @@ out) is computed.
 
 Derive from `vtscreen::Scene` (`info()`, `setup(cols, rows)`, `frame(t, Picture&)`),
 put its internals in an anonymous namespace, and end the file with a factory like
-`make_thunderstorm()` (see `thunderstorm/thunderstorm.cpp` and `scenes.h`). For a
-single-scene program, `main` is `vtscreen::run(scene, argc, argv)`. The comment at
-the top of `vtscreen/vtscreen.h` has a short example. Compile a scene with
+`make_thunderstorm()` (see `thunderstorm/thunderstorm.cpp`, `bonfire/bonfire.cpp` and
+`scenes.h`). For a single-scene program, `main` is `vtscreen::run(scene, argc, argv)`.
+The comment at the top of `vtscreen/vtscreen.h` has a short example. Compile a scene with
 `-DVTSHOW_NO_MAIN` to leave out its `main` so it can be linked into `show`.
 
 ## Licence

@@ -8,4 +8,8 @@
 
 #include "vtscreen/vtscreen.h"
 
+std::unique_ptr<vtscreen::Scene> make_bonfire();
+std::unique_ptr<vtscreen::Scene> make_moonphases();
+std::unique_ptr<vtscreen::Scene> make_starburst();
+std::unique_ptr<vtscreen::Scene> make_singularity();
 std::unique_ptr<vtscreen::Scene> make_thunderstorm();
