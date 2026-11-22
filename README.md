@@ -71,13 +71,20 @@ in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS`
 
 The code also has a Windows branch (`#ifdef _WIN32` in `vtscreen/vtscreen.h`, which
 uses the Windows console API instead of termios and poll). It needs **Windows 10 or
-later**; Windows Terminal is the best place to run it. **I could not build or run this
-on Windows myself, so treat it as untested** and report any compile error.
+later**; Windows Terminal is the best place to run it. It builds cleanly, with no
+warnings, with Visual Studio 2026 (MSVC 14.51, x64), and every scene prints a correct
+frame with `--still`. The live animation in the Windows console has not been tested yet; report
+any problem.
 
+- **Visual C++ (easiest):** run `build.bat` from a normal Command Prompt or
+  PowerShell (or double-click it). It finds Visual Studio itself (2019 or later,
+  with "Desktop development with C++") and builds the five scenes and the show as
+  `.exe` files next to their sources, the same layout as `build.sh`:
+  `show\show.exe`, `bonfire\bonfire.exe --loop` and so on.
 - **MinGW-w64 (for example MSYS2, "MINGW64" shell):** the same `./build.sh` works,
   and it adds `-static` there so the programs need no DLLs. By hand:
   `g++ -O2 -std=c++17 -static -o show/show show/show.cpp ...` as in `build.sh`.
-- **Visual C++ (x64 Native Tools prompt)**, one program, for example:
+- **Visual C++ by hand (x64 Native Tools prompt)**, one program, for example:
   `cl /nologo /std:c++17 /O2 /EHsc /utf-8 /Fe:thunderstorm\thunderstorm.exe thunderstorm\thunderstorm.cpp`
   and for the show, add `/DVTSHOW_NO_MAIN show\show.cpp` and the five scene files.
 - With Visual C++ the thunderstorm's random details (its hills and drops) differ a
