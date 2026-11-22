@@ -10,9 +10,11 @@ Included scenes:
   warm glow on the ground, rising sparks and specks of ash.
 - `moonphases`: a moon on a starry sky that goes through a whole cycle of phases in
   24 seconds, with earthshine on the dark side, dark seas and craters.
-- `starburst`: fireworks over a night sky: shells that climb with a glowing trail,
-  bursts in several styles (peony, chrysanthemum, ring, willow, double burst) whose
-  sparks slow in the air, droop and cool through their colours, and a finale.
+- `starburst`: fireworks over a night sky, with real physics: shells fired from the
+  middle that climb for 3 to 4 seconds on a ballistic arc, bursts in several styles
+  (peony, chrysanthemum, ring, willow, double burst) in a theme colour with accent
+  and glitter sparks, sparks that are braked by air drag, hang and sink while cooling
+  from white-hot to ember red, faint clouds lit by each burst, and a finale.
 - `singularity`: a black hole with a glowing, turning accretion disk seen at a tilt,
   brighter on the side moving towards us, light from behind the hole bent over and
   under it, and stars bent and stretched round it.
