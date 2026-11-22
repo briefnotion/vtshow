@@ -1,15 +1,14 @@
 // show - the scenes in one program, one after the other: bonfire, moonphases,
-// starburst, singularity and thunderstorm, and, with the scenes in ports/ present,
-// those first.
+// starburst, singularity and thunderstorm.
 //
 // One scene is on screen. After STAY_SECONDS it switches to the next, or at once
-// when you press n (or space); q quits. A switch is a FADE_SECONDS cross-fade: the two pictures' brightness and colour are mixed cell by cell
-// (vtscreen::fade) and the Display picks the letters for the mixture. A press of
-// n during a fade is ignored.
+// when you press n (or space); q quits. A switch is a FADE_SECONDS cross-fade: the
+// two pictures' brightness and colour are mixed cell by cell (vtscreen::fade) and
+// the Display picks the letters for the mixture. A press of n during a fade is
+// ignored.
 //
 //   ./build.sh          (compiles this file together with the scenes, with
-//                        -DVTSHOW_NO_MAIN so the scenes leave out their own main,
-//                        and -DVTSHOW_PORTS when the ports/ folder is there)
+//                        -DVTSHOW_NO_MAIN so the scenes leave out their own main)
 //   ./show/show         options: --fps N  --no-color  --cols N --rows N
 //
 // All scenes share one clock. Only the scene on screen is computed (and the one
@@ -21,9 +20,6 @@
 #include <vector>
 
 #include "../scenes.h"
-#ifdef VTSHOW_PORTS
-#include "../ports/ports.h"
-#endif
 
 static const double STAY_SECONDS = 30.0;   // a scene on screen on its own, before the next fade starts
 static const double FADE_SECONDS = 10.0;   // the cross-fade between two scenes
@@ -40,12 +36,6 @@ int main(int argc, char** argv) {
     if (!vtscreen::resolve_size(o, cols, rows)) return 1;
 
     std::vector<std::unique_ptr<vtscreen::Scene>> scenes;
-#ifdef VTSHOW_PORTS
-    scenes.push_back(make_campfire());
-    scenes.push_back(make_moon());
-    scenes.push_back(make_fireworks());
-    scenes.push_back(make_blackhole());
-#endif
     scenes.push_back(make_bonfire());
     scenes.push_back(make_moonphases());
     scenes.push_back(make_starburst());

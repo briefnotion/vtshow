@@ -63,8 +63,7 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
 
 `show` plays the bonfire, the moon, the fireworks, the black hole and the thunderstorm
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
-`FADE_SECONDS` in `show/show.cpp`). If a `ports/` folder with more scenes is present,
-`build.sh` builds them in as well and they come first.
+`FADE_SECONDS` in `show/show.cpp`).
 
 ## How it fits together
 

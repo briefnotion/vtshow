@@ -1,7 +1,7 @@
 // scenes.h - one factory function per scene. Each scene's .cpp defines its own
 // (and keeps its internals in an anonymous namespace), so several scenes can be
 // linked into one program. Compile a scene with -DVTSHOW_NO_MAIN to leave out
-// its own main(). The scenes in ports/ are declared in ports/ports.h.
+// its own main().
 #pragma once
 
 #include <memory>

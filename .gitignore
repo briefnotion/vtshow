@@ -1,6 +1,3 @@
-# the optional extra scenes live in their own (private) repo, cloned here
-ports/
-
 # built programs
 bonfire/bonfire
 moonphases/moonphases
