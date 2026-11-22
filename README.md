@@ -1,0 +1,85 @@
+# vtshow
+
+Animations made of letters, drawn in a terminal. A small header-only C++ library
+(`vtscreen`) turns a picture of brightness and colour into letters and sends only
+what changed, and `show` plays scenes one after another with cross-fades.
+
+Included scene: a thunderstorm (storm clouds in perspective, drizzle, distant rain
+curtains, lightning at different distances, thunder arriving after the flash).
+You can write more; see "Writing a scene".
+
+## Credit
+
+The look of this project, letters grouped by how much ink they carry and a scene
+described as `setup(cols, rows)` once and then `frame(t)` as a pure function of
+time, comes from the **python.animate** YouTube channel:
+
+**https://www.youtube.com/@python.animate**
+
+The table of letter groups (`LEVELS` in `vtscreen/vtscreen.h`) is the channel's.
+Everything else in this repo, including the thunderstorm, was written for this
+project, with Claude. This is an unofficial personal project, not affiliated with
+or endorsed by the channel. I have also made C++ ports of some of the channel's
+animations for my own use. They are not included here because the author has not
+published a licence for their code.
+
+## Build and run
+
+Requirements: Linux, `g++` with C++17 support, and a terminal. Nothing else.
+
+    ./build.sh
+
+    ./thunderstorm/thunderstorm --loop     one scene on its own
+    ./show/show                            the show (q quits, n or space: next scene)
+
+Options, for both programs: `--fps N` (default 30), `--no-color`, `--cols N --rows N`.
+The scene program also has `--loop` (keep going after its 24 seconds, no restart) and
+`--still T` (print the frame at T seconds as plain text).
+
+- Colour is 24-bit. Most desktop terminals and SSH clients support it; the plain
+  Linux text console does not, so use `--no-color` there.
+- The size is read when the program starts. If you resize the window while it is
+  running, restart the program.
+- Minimum size is 40 x 20 characters. Output is about 0.7 MiB/s at 150 x 60, 30 fps,
+  in colour for the thunderstorm, and grows with `--fps`.
+- The status line at the bottom shows the scene, the time and `actual/target fps`,
+  for example `29.9/30 fps`. If the first number is lower, the program or the
+  terminal is not keeping up.
+
+With only the thunderstorm there is nothing to switch to, so `show` just plays it.
+If a `ports/` folder with more scenes is present, `build.sh` builds them in and the
+show cycles through all of them: 30 seconds alone on screen, then a 10 second
+cross-fade (`STAY_SECONDS` and `FADE_SECONDS` in `show/show.cpp`).
+
+## How it fits together
+
+    scene (your code)                  vtscreen/vtscreen.h
+    ------------------                 ----------------------------------------
+    setup(cols, rows)                  Display: the terminal session (size,
+    frame(t, Picture&):                  alternate screen, keys, Ctrl-C), the clock,
+      a brightness 0..1 and a            the fps counter, the status line
+      colour for every cell            letters: 16 steps, the top eight in inverse
+                                         video, plus a shimmer that follows --fps
+                                       colours rounded to 16 levels per channel
+                                       compares with what the terminal shows and
+                                         sends only the differences
+                                       fade(a, b, pct): mix two pictures
+
+A scene never sees a letter or an escape code. Because a `Picture` is just numbers,
+two of them can be mixed cell by cell and the letters picked once for the result,
+which is how the cross-fade works. Only the scene on screen (and the one fading
+out) is computed.
+
+## Writing a scene
+
+Derive from `vtscreen::Scene` (`info()`, `setup(cols, rows)`, `frame(t, Picture&)`),
+put its internals in an anonymous namespace, and end the file with a factory like
+`make_thunderstorm()` (see `thunderstorm/thunderstorm.cpp` and `scenes.h`). For a
+single-scene program, `main` is `vtscreen::run(scene, argc, argv)`. The comment at
+the top of `vtscreen/vtscreen.h` has a short example. Compile a scene with
+`-DVTSHOW_NO_MAIN` to leave out its `main` so it can be linked into `show`.
+
+## Licence
+
+MIT, see `LICENSE`. The letter table in `vtscreen/vtscreen.h` is the channel's, see
+Credit above.
