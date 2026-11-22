@@ -67,6 +67,24 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
 `FADE_SECONDS` in `show/show.cpp`).
 
+## Windows
+
+The code also has a Windows branch (`#ifdef _WIN32` in `vtscreen/vtscreen.h`, which
+uses the Windows console API instead of termios and poll). It needs **Windows 10 or
+later**; Windows Terminal is the best place to run it. **I could not build or run this
+on Windows myself, so treat it as untested** and report any compile error.
+
+- **MinGW-w64 (for example MSYS2, "MINGW64" shell):** the same `./build.sh` works,
+  and it adds `-static` there so the programs need no DLLs. By hand:
+  `g++ -O2 -std=c++17 -static -o show/show show/show.cpp ...` as in `build.sh`.
+- **Visual C++ (x64 Native Tools prompt)**, one program, for example:
+  `cl /nologo /std:c++17 /O2 /EHsc /utf-8 /Fe:thunderstorm\thunderstorm.exe thunderstorm\thunderstorm.cpp`
+  and for the show, add `/DVTSHOW_NO_MAIN show\show.cpp` and the five scene files.
+- With Visual C++ the thunderstorm's random details (its hills and drops) differ a
+  little from Linux and MinGW, because the standard library's random distributions
+  are not the same everywhere.
+- On Cygwin or WSL it is treated as Linux and needs no changes.
+
 ## How it fits together
 
     scene (your code)                  vtscreen/vtscreen.h

@@ -240,7 +240,7 @@ static void frame(double t, Picture& F) {
         // off to the horizon, so the pattern shrinks and bunches up with distance
         double d = std::max(S.sky - i, 0) + 1.2;         // rows above the horizon line
         double Z = (R * 0.9) / d;                        // how far away that row of cloud is
-        double far = smooth((Z - 3.0) / 12.0);           // 0 overhead .. 1 at the horizon
+        double farness = smooth((Z - 3.0) / 12.0);           // 0 overhead .. 1 at the horizon
         for (int j = 0; j < C; j++) {
             double X = (j - C / 2.0) / (C * 0.5) * Z;    // sideways position on the cloud layer
             double n = fbm(X * 1.6 + 0.06 * t, Z * 1.4 + 0.015 * t);
@@ -251,7 +251,7 @@ static void frame(double t, Picture& F) {
                 loc += L.ke * std::exp(-(qx * qx + qy * qy));
             }
             loc = std::min(loc, 1.5);
-            double lum = 0.012 + 0.17 * far * (0.6 + 0.4 * (1 - dens)) + dens * (0.27 - 0.14 * far)
+            double lum = 0.012 + 0.17 * farness * (0.6 + 0.4 * (1 - dens)) + dens * (0.27 - 0.14 * farness)
                        + 0.05 * smooth((i - 0.55 * R) / (0.3 * R))
                        + dens * (0.40 * amb + 0.9 * loc) + (1 - dens) * 0.08 * amb * (1 - (double)i / R);
 

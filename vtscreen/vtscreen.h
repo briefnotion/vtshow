@@ -31,6 +31,14 @@
 
 #pragma once
 
+// On Windows (_WIN32) the terminal, keyboard and timing code uses the Windows
+// console API; elsewhere it uses POSIX (termios, poll). The Windows branch needs
+// Windows 10 or later, where the console understands escape codes. Defining
+// VTSCREEN_FORCE_WINDOWS selects it on any system (for compile-checking only).
+#if defined(_WIN32) || defined(VTSCREEN_FORCE_WINDOWS)
+#define VTSCREEN_WINDOWS 1
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -40,12 +48,40 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
-#include <poll.h>
 #include <string>
+#include <vector>
+
+#ifdef VTSCREEN_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX                  // keep std::min and std::max working
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <io.h>
+#ifdef near                       // old Windows headers define these as empty macros
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+#else
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
-#include <vector>
+#endif
+
+#ifndef M_PI                      // Visual C++ only defines it with _USE_MATH_DEFINES
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace vtscreen {
 
@@ -129,6 +165,14 @@ inline void fade(const Picture& a, const Picture& b, double pct, Picture& out) {
 namespace detail {
 inline double clampd(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
+}
+
+inline bool stdout_is_tty() {
+#ifdef VTSCREEN_WINDOWS
+    return _isatty(_fileno(stdout)) != 0;
+#else
+    return isatty(STDOUT_FILENO) != 0;
+#endif
 }
 }
 
@@ -248,12 +292,22 @@ inline void on_sigint(int) { g_stop = 1; }
 inline void write_all(const std::string& s) {
     const char* p = s.data();
     size_t left = s.size();
+#ifdef VTSCREEN_WINDOWS
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    while (left > 0) {
+        DWORD want = (DWORD)(left > 65536 ? 65536 : left), n = 0;
+        if (!WriteFile(h, p, want, &n, nullptr) || n == 0) break;
+        p += n;
+        left -= (size_t)n;
+    }
+#else
     while (left > 0) {
         ssize_t n = ::write(STDOUT_FILENO, p, left);
         if (n <= 0) break;
         p += n;
         left -= (size_t)n;
     }
+#endif
 }
 
 // The status line text, exactly cols wide. actual = frames really drawn per
@@ -347,6 +401,30 @@ public:
         color = o.color;
         fps = o.fps;
         cols_ = cols; rows_ = rows;
+#ifdef VTSCREEN_WINDOWS
+        hout_ = GetStdHandle(STD_OUTPUT_HANDLE);
+        hin_ = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD mode = 0;
+        out_console_ = GetConsoleMode(hout_, &mode) != 0;
+        if (out_console_) {                    // let the console understand escape codes
+            old_out_mode_ = mode;
+            if (!SetConsoleMode(hout_, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
+                std::fprintf(stderr, "this console does not understand terminal escape codes; "
+                                     "use Windows 10 or later (Windows Terminal works best)\n");
+                std::exit(1);
+            }
+        }
+        tty_in = GetConsoleMode(hin_, &mode) != 0;
+        std::signal(SIGINT, on_sigint);
+        std::signal(SIGTERM, on_sigint);
+        // a high-resolution timer for the wait between frames (Windows 10 1803 and
+        // later), else an ordinary one, which is coarser (about 15 ms)
+        timer_ = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                        TIMER_ALL_ACCESS);
+        if (!timer_) timer_ = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+
+        write_all("\x1b[?1049h\x1b[?25l\x1b[2J");
+#else
         tty_in = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &old_tio) == 0;
         struct sigaction sa{};
         sa.sa_handler = on_sigint;
@@ -361,6 +439,7 @@ public:
             raw.c_cc[VTIME] = 0;
             tcsetattr(STDIN_FILENO, TCSADRAIN, &raw);
         }
+#endif
         init(rows - 1, cols);                  // the picture; the status line goes underneath
         write_all(refresh());
         is_open = true;
@@ -369,7 +448,13 @@ public:
     void close() {
         if (!is_open) return;
         write_all("\x1b[0m\x1b[?25h\x1b[?1049l");
+#ifdef VTSCREEN_WINDOWS
+        if (out_console_) SetConsoleMode(hout_, old_out_mode_);
+        if (tty_in) FlushConsoleInputBuffer(hin_);      // keys typed meanwhile are not for the shell
+        if (timer_) { CloseHandle(timer_); timer_ = nullptr; }
+#else
         if (tty_in) tcsetattr(STDIN_FILENO, TCSADRAIN, &old_tio);
+#endif
         is_open = false;
     }
     ~Display() { close(); }
@@ -413,6 +498,27 @@ public:
         double wait = (n_ * dt) - time();
         if (wait < -1.0)                       // fell far behind: resync
             n_ = (long)(time() / dt);
+#ifdef VTSCREEN_WINDOWS
+        const double due = n_ * dt;
+        for (;;) {
+            double remaining = due - time();
+            if (remaining <= 0 || g_stop) break;
+            HANDLE objs[2];
+            DWORD count = 0;
+            if (timer_) {
+                LARGE_INTEGER rel;
+                rel.QuadPart = -(LONGLONG)(remaining * 1e7);    // negative: relative, in 100 ns units
+                SetWaitableTimer(timer_, &rel, 0, nullptr, nullptr, FALSE);
+                objs[count++] = timer_;
+            }
+            if (tty_in) objs[count++] = hin_;                    // wake early when a key arrives
+            DWORD ms = timer_ ? INFINITE : (DWORD)(remaining * 1000 + 0.5);
+            if (count > 0) WaitForMultipleObjects(count, objs, FALSE, ms);
+            else Sleep(ms);
+            read_keys();
+        }
+        read_keys();
+#else
         if (tty_in) {
             pollfd pfd{STDIN_FILENO, POLLIN, 0};
             int ms = wait > 0 ? (int)(wait * 1000) : 0;
@@ -426,12 +532,37 @@ public:
         } else if (wait > 0) {
             usleep((useconds_t)(wait * 1e6));
         }
+#endif
     }
 
 private:
     using clk = std::chrono::steady_clock;
     bool is_open = false, tty_in = false;
+#ifdef VTSCREEN_WINDOWS
+    HANDLE hout_ = nullptr, hin_ = nullptr, timer_ = nullptr;
+    DWORD old_out_mode_ = 0;
+    bool out_console_ = false;
+
+    // take every key press waiting in the console: q quits, the rest are kept
+    void read_keys() {
+        if (!tty_in) return;
+        INPUT_RECORD rec[64];
+        DWORD avail = 0, got = 0;
+        while (GetNumberOfConsoleInputEvents(hin_, &avail) && avail > 0) {
+            if (!ReadConsoleInputW(hin_, rec, 64, &got)) break;
+            for (DWORD i = 0; i < got; i++) {
+                if (rec[i].EventType != KEY_EVENT || !rec[i].Event.KeyEvent.bKeyDown) continue;
+                wchar_t w = rec[i].Event.KeyEvent.uChar.UnicodeChar;
+                if (w <= 0 || w >= 128) continue;
+                char c = (char)w;
+                if (c == 'q' || c == 'Q') g_stop = 1;
+                else keys_.push_back(c);
+            }
+        }
+    }
+#else
     termios old_tio{};
+#endif
     int cols_ = 0, rows_ = 0;
     std::string keys_;                            // keys pressed, not yet read
     clk::time_point start_ = clk::now();
@@ -560,10 +691,19 @@ inline int parse_options(int argc, char** argv, Options& o) {
 // The terminal's size, or the options' --cols / --rows. Prints a message and
 // returns false if it is smaller than 40 x 20.
 inline bool resolve_size(const Options& o, int& cols, int& rows) {
+    int tcols = 100, trows = 40;               // used when the output is not a terminal
+#ifdef VTSCREEN_WINDOWS
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)) {
+        tcols = info.srWindow.Right - info.srWindow.Left + 1;
+        trows = info.srWindow.Bottom - info.srWindow.Top + 1;
+    }
+#else
     winsize ws{};
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) { ws.ws_col = 100; ws.ws_row = 40; }
-    cols = o.cols ? o.cols : ws.ws_col;
-    rows = o.rows ? o.rows : ws.ws_row;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col != 0) { tcols = ws.ws_col; trows = ws.ws_row; }
+#endif
+    cols = o.cols ? o.cols : tcols;
+    rows = o.rows ? o.rows : trows;
     if (cols < 40 || rows < 20) {
         std::fprintf(stderr, "terminal too small (%dx%d); need at least 40x20\n", cols, rows);
         return false;
@@ -586,7 +726,7 @@ inline int run(Scene& scene, int argc, char** argv) {
         Picture F;
         scene.frame(o.still_t, F);
         std::string s = render_plain(F, rows - 1, cols, o.still_t, o.fps, false, false,
-                                     isatty(STDOUT_FILENO), info.hash_letters);
+                                     detail::stdout_is_tty(), info.hash_letters);
         std::fwrite(s.data(), 1, s.size(), stdout);
         return 0;
     }

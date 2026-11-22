@@ -211,13 +211,13 @@ void Bonfire::frame(double t, Picture& F) {
         int ci = (int)std::floor(xcol), ri = (int)std::floor(row);
         if (ci < 0 || ci >= C || ri < 0 || ri >= R) continue;
         double hx = (xcol - cx) / (W0 * 3.5), hy = (ground - row) * 2.0 / (Hc * 1.1);
-        double near = std::exp(-(hx * hx + hy * hy));
+        double closeness = std::exp(-(hx * hx + hy * hy));
         double tw = 0.65 + 0.35 * std::sin(t * 2.0 + 17.0 * ph);
-        double l = (0.085 + 0.10 * near) * std::sin(M_PI * frac) * tw * 1.6;
+        double l = (0.085 + 0.10 * closeness) * std::sin(M_PI * frac) * tw * 1.6;
         size_t p = (size_t)ri * C + ci;
         if (l > F.lum[p]) {
             F.lum[p] = l;
-            double k = 0.55 + 0.9 * near;
+            double k = 0.55 + 0.9 * closeness;
             F.rgb[p * 3 + 0] = clampd(150 * k, 0, 255);
             F.rgb[p * 3 + 1] = clampd(125 * k, 0, 255);
             F.rgb[p * 3 + 2] = clampd(110 * k, 0, 255);
