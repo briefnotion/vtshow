@@ -86,23 +86,26 @@ int main(int argc, char** argv) {
         double pct = fading ? (t - switched) / FADE_SECONDS : 1.0;
         if (fading && pct >= 1.0) { fading = false; settled = t; }
 
+        // each scene on screen gets its own status bar (title, our hint, time, fps)
+        // in its own picture, so a fade mixes the two bars like everything else
+        const char* hint = hold ? "  [HOLD]" : "  [n h]";
         scenes[on]->cycle(t);
-        if (fading) scenes[from]->cycle(t);
+        display.bar(scenes[on]->screen, scenes[on]->info(), t, true, hint);
+        if (fading) {
+            scenes[from]->cycle(t);
+            display.bar(scenes[from]->screen, scenes[from]->info(), t, true, hint);
+        }
 
-        // while fading, the status line and letter style follow the scene that
-        // is more visible
+        // while fading, the letter style follows the scene that is more visible
         const vtscreen::Scene* lead = (fading && pct < 0.5) ? scenes[from].get() : scenes[on].get();
-        vtscreen::Info info = lead->info();
-        std::string title = std::string(info.title) + (hold ? "  [HOLD]" : "  [n h]");
-        info.title = title.c_str();
-        display.hash_letters = info.hash_letters;
+        display.hash_letters = lead->info().hash_letters;
 
         if (fading) {
             double ease = pct * pct * (3 - 2 * pct);            // slow at both ends
             vtscreen::fade(scenes[from]->screen, scenes[on]->screen, ease, mixed);
-            display.show(mixed, t, info, true);
+            display.show(mixed, t);
         } else {
-            display.show(scenes[on]->screen, t, info, true);
+            display.show(scenes[on]->screen, t);
         }
         display.end_frame();
     }

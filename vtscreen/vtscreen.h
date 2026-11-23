@@ -9,7 +9,7 @@
 //   frame(t) -> for every cell:          raw keys, Ctrl-C, restore on exit
 //       brightness 0..1                owns the clock: fps, pacing, --loop, the
 //       colour r,g,b                     measured fps, the status line, q to quit
-//     + a few HUD text lines           turns brightness into a letter: 16 steps,
+//     + text cells (the readout)       turns brightness into a letter: 16 steps,
 //                                        inverse video, shimmer
 //                                      rounds colours
 //                                      shows a scene's picture on the terminal,
@@ -105,16 +105,121 @@ inline constexpr double SHIMMER_FRAMES = 2.5;
 inline const std::vector<std::string> LEVELS = {
     " ", ".`'", ":;,-~", "=+*^", "ijltrxz/\\|", "oecnuv()", "0O8B&%", "#@$QW"};
 
+// ---------------------------------------------------------------- characters
+
+// A cell holds one Unicode code point (char32_t); text goes in and out as UTF-8.
+// Every character is taken to be one column wide: wide characters (Chinese, emoji)
+// and combining marks are not handled, and would shift the rest of their line.
+namespace detail {
+// the next code point of a UTF-8 string, moving i past it; a bad sequence gives '?'
+inline char32_t next_utf8(const std::string& s, size_t& i) {
+    const unsigned char c = (unsigned char)s[i++];
+    if (c < 0x80) return c;
+    int n;
+    char32_t cp;
+    if (c >= 0xC2 && c <= 0xDF)      { n = 1; cp = c & 0x1F; }
+    else if (c >= 0xE0 && c <= 0xEF) { n = 2; cp = c & 0x0F; }
+    else if (c >= 0xF0 && c <= 0xF4) { n = 3; cp = c & 0x07; }
+    else return U'?';
+    for (int k = 0; k < n; k++) {
+        if (i >= s.size() || ((unsigned char)s[i] & 0xC0) != 0x80) return U'?';
+        cp = (cp << 6) | ((unsigned char)s[i++] & 0x3F);
+    }
+    const char32_t least = n == 1 ? 0x80 : (n == 2 ? 0x800 : 0x10000);
+    if (cp < least || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return U'?';
+    return cp;
+}
+
+inline std::u32string to_u32(const std::string& s) {
+    std::u32string out;
+    for (size_t i = 0; i < s.size();) out += next_utf8(s, i);
+    return out;
+}
+
+inline void append_utf8(std::string& out, char32_t c) {
+    if (c < 0x80) { out += (char)c; return; }
+    if (c < 0x800) {
+        out += (char)(0xC0 | (c >> 6));
+        out += (char)(0x80 | (c & 0x3F));
+    } else if (c < 0x10000) {
+        out += (char)(0xE0 | (c >> 12));
+        out += (char)(0x80 | ((c >> 6) & 0x3F));
+        out += (char)(0x80 | (c & 0x3F));
+    } else {
+        out += (char)(0xF0 | (c >> 18));
+        out += (char)(0x80 | ((c >> 12) & 0x3F));
+        out += (char)(0x80 | ((c >> 6) & 0x3F));
+        out += (char)(0x80 | (c & 0x3F));
+    }
+}
+
+inline std::string to_utf8(const std::u32string& s) {
+    std::string out;
+    for (char32_t c : s) append_utf8(out, c);
+    return out;
+}
+}  // namespace detail
+
 // ---------------------------------------------------------------- what a scene gives us
 
-// What a scene draws on: a brightness and a colour for every cell, no letters.
-// lum has one entry per cell (rows * cols, row by row), 0..1; rgb has three
-// numbers per cell, 0..255. hud holds short text lines drawn over the top-left
-// corner, one per row. The Display turns this into letters.
+// One cell of a scene's picture. Normally: how bright it is, what colour, and how
+// fast its letter shimmers; the Display picks the letter. lum is 0..1; r, g, b are
+// 0..255; shimmer is a speed, 1 = the normal rate (the letter inside its group
+// changes once every SHIMMER_FRAMES frames), 0 = frozen, 3 = three times as fast.
+//
+// The alt colour is the other colour of the pair every cell has. The primary
+// colour r, g, b is the letter in a dim cell and the solid block in a bright (inverse)
+// cell; the alt colour is what is behind the letter in a dim cell and the letter
+// itself in a bright one. alt_lum is its brightness, 0..1: the colour shown is
+// alt_r, alt_g, alt_b scaled by alt_lum, and 0 means no alt colour at all (the
+// terminal's own colour is left alone, and nothing extra is sent). With --no-color
+// it is not used.
+//
+// A text cell (text = true) is different: it is a letter the scene chose itself.
+// The Display draws ch, in inverse video if inv is set, in the colour r, g, b, and
+// ignores lum and shimmer. Text is how the readout in the corner is drawn.
+struct PicCell {
+    double lum = 0;
+    double r = 0, g = 0, b = 0;
+    double shimmer = 1;
+    double alt_lum = 0;
+    double alt_r = 0, alt_g = 0, alt_b = 0;
+    bool text = false;
+    char32_t ch = U' ';
+    bool inv = false;
+};
+
+// What a scene draws on: a grid of PicCells, rows * cols, row by row, the same
+// shape as a VtScreen (which holds the finished letters), so it is the whole
+// terminal. The Display turns it into letters. The last row is the status bar.
 struct Picture {
-    std::vector<double> lum;
-    std::vector<double> rgb;
-    std::vector<std::string> hud;
+    int rows = 0, cols = 0;
+    std::vector<PicCell> cell;
+
+    // Size it and clear every cell to the default. R is the rows of the picture
+    // proper (what setup() was given); the status bar's row comes underneath, so
+    // rows ends up R + 1.
+    void init(int R, int C) { rows = R + 1; cols = C; cell.assign((size_t)(R + 1) * C, PicCell()); }
+    int bar_row() const { return rows - 1; }
+    PicCell& at(int i, int j) { return cell[(size_t)i * cols + j]; }
+    const PicCell& at(int i, int j) const { return cell[(size_t)i * cols + j]; }
+
+    // Write s (UTF-8) as text cells along row, starting at col, over whatever is
+    // there. The default colour is the readout grey. What does not fit on the
+    // picture is left off.
+    void text(int row, int col, const std::string& s, double r = 170, double g = 170,
+              double b = 170, bool inv = false) {
+        if (row < 0 || row >= rows) return;
+        const std::u32string u = detail::to_u32(s);
+        for (size_t k = 0; k < u.size(); k++) {
+            const int j = col + (int)k;
+            if (j < 0 || j >= cols) continue;
+            PicCell& c = at(row, j);
+            c = PicCell();
+            c.text = true; c.ch = u[k]; c.inv = inv;
+            c.r = r; c.g = g; c.b = b;
+        }
+    }
 };
 
 struct Info {
@@ -147,17 +252,45 @@ public:
 // ---------------------------------------------------------------- mixing two pictures
 
 // Mix two pictures of the same size into out: pct 0 gives a, 1 gives b, in
-// between is a cross-fade. Brightness and colour are mixed cell by cell, before
-// any letters are picked, so the Display picks the letters once for the mixture.
-// The HUD text lines come from a up to the halfway point and from b after it.
+// between is a cross-fade. Brightness, colour and shimmer are mixed cell by cell,
+// before any letters are picked, so the Display picks the letters once for the
+// mixture. Text cannot be mixed, so a cell that is text in either picture takes
+// the letter from the picture that is ahead (a up to the halfway point, b after
+// it). If both are text the colours are mixed as well; if only one is, the cell
+// is that picture's cell as it is.
 inline void fade(const Picture& a, const Picture& b, double pct, Picture& out) {
     pct = pct < 0 ? 0 : (pct > 1 ? 1 : pct);
     const double wa = 1.0 - pct, wb = pct;
-    out.lum.resize(a.lum.size());
-    out.rgb.resize(a.rgb.size());
-    for (size_t i = 0; i < a.lum.size(); i++) out.lum[i] = a.lum[i] * wa + b.lum[i] * wb;
-    for (size_t i = 0; i < a.rgb.size(); i++) out.rgb[i] = a.rgb[i] * wa + b.rgb[i] * wb;
-    out.hud = pct < 0.5 ? a.hud : b.hud;
+    out.rows = a.rows; out.cols = a.cols;
+    out.cell.resize(a.cell.size());
+    for (size_t i = 0; i < a.cell.size(); i++) {
+        const PicCell& p = a.cell[i];
+        const PicCell& q = b.cell[i];
+        PicCell& o = out.cell[i];
+        if (p.text || q.text) {
+            o = pct < 0.5 ? p : q;
+            if (p.text && q.text) {
+                o.r = p.r * wa + q.r * wb;
+                o.g = p.g * wa + q.g * wb;
+                o.b = p.b * wa + q.b * wb;
+                o.alt_lum = p.alt_lum * wa + q.alt_lum * wb;
+                o.alt_r = p.alt_r * wa + q.alt_r * wb;
+                o.alt_g = p.alt_g * wa + q.alt_g * wb;
+                o.alt_b = p.alt_b * wa + q.alt_b * wb;
+            }
+            continue;
+        }
+        o = PicCell();
+        o.lum = p.lum * wa + q.lum * wb;
+        o.r = p.r * wa + q.r * wb;
+        o.g = p.g * wa + q.g * wb;
+        o.b = p.b * wa + q.b * wb;
+        o.shimmer = p.shimmer * wa + q.shimmer * wb;
+        o.alt_lum = p.alt_lum * wa + q.alt_lum * wb;
+        o.alt_r = p.alt_r * wa + q.alt_r * wb;
+        o.alt_g = p.alt_g * wa + q.alt_g * wb;
+        o.alt_b = p.alt_b * wa + q.alt_b * wb;
+    }
 }
 
 // ---------------------------------------------------------------- letters and colours
@@ -166,6 +299,9 @@ namespace detail {
 inline double clampd(double v, double lo, double hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+// a colour channel (0..255) as the nearest whole number, not rounded to colour levels
+inline int byte(double v) { return (int)(clampd(v, 0, 255) + 0.5); }
 
 inline bool stdout_is_tty() {
 #ifdef VTSCREEN_WINDOWS
@@ -185,18 +321,26 @@ inline int quant(double v) {
 // 16 brightness steps. 0 .. 0.5 uses groups 0..7 as they are; 0.5 .. 1 uses
 // groups 7..0 drawn in inverse video, so the hottest cells are solid colour.
 // The group picks the letters; position and time pick one, so it shimmers.
+// shimmer is the cell's speed (PicCell::shimmer): 1 = the normal rate, 0 = the
+// letter stays put, 3 = three times as fast. Below 0 counts as 0.
 inline char pick_char(double lum, int i, int j, double t, int fps, bool& inv,
-                      bool hash = false) {
+                      bool hash = false, double shimmer = 1.0) {
     int n = (int)LEVELS.size();
     int step = std::min(std::max((int)(lum * 2 * n), 0), 2 * n - 1);
     inv = step >= n;
     const std::string& g = LEVELS[inv ? 2 * n - 1 - step : step];
+    const long ticks = (long)(t * fps / SHIMMER_FRAMES * (shimmer > 0 ? shimmer : 0.0));
     if (hash) {
         uint32_t h = (uint32_t)i * 73856093u ^ (uint32_t)j * 19349663u ^
-                     (uint32_t)(long)(t * fps / SHIMMER_FRAMES) * 83492791u;
+                     (uint32_t)ticks * 83492791u;
+        // Mix the bits before taking the remainder: the low bits of the products above
+        // repeat every few cells, which tiled the letters of a flat area.
+        h ^= h >> 16; h *= 0x7feb352dU;
+        h ^= h >> 15; h *= 0x846ca68bU;
+        h ^= h >> 16;
         return g[h % g.size()];
     }
-    long shuffle = (long)i * 7 + (long)j * 13 + (long)(t * fps / SHIMMER_FRAMES);
+    long shuffle = (long)i * 7 + (long)j * 13 + ticks;
     return g[shuffle % (long)g.size()];
 }
 
@@ -211,27 +355,46 @@ inline std::string render_plain(const Picture& F, int R, int C, double t, int fp
     for (int i = 0; i < R; i++) {
         int last[3] = {-1, -1, -1};
         bool on = false;                       // inverse video currently on
-        const std::string* hud = i < (int)F.hud.size() ? &F.hud[i] : nullptr;
-        if (hud && color) out += "\x1b[38;2;170;170;170m";
+        bool alt_on = false;                   // a background colour currently set
+        int lastalt[3] = {-1, -1, -1};
         for (int j = 0; j < C; j++) {
-            if (hud && j < (int)hud->size()) { out += (*hud)[j]; continue; }
-            if (hud && j == (int)hud->size()) { last[0] = -1; }   // force colour resync
+            const PicCell& pc = F.cell[i * C + j];
             bool inv;
-            char ch = pick_char(F.lum[i * C + j], i, j, t, fps, inv, hash_letters);
+            char32_t ch;
+            if (pc.text) { ch = pc.ch; inv = pc.inv; }
+            else ch = pick_char(pc.lum, i, j, t, fps, inv, hash_letters, pc.shimmer);
             inv = inv && vt_inv;
             if (inv != on) { out += inv ? "\x1b[7m" : "\x1b[27m"; on = inv; }
-            if (ch == ' ' && !inv) { out += ' '; continue; }
+            if (color) {                                  // the alt colour (background)
+                const bool alt = pc.alt_lum > 0;
+                const double al = detail::clampd(pc.alt_lum, 0, 1);
+                int ap[3] = {0, 0, 0};
+                if (alt) {
+                    if (pc.text) { ap[0] = detail::byte(pc.alt_r * al); ap[1] = detail::byte(pc.alt_g * al); ap[2] = detail::byte(pc.alt_b * al); }
+                    else { ap[0] = quant(pc.alt_r * al); ap[1] = quant(pc.alt_g * al); ap[2] = quant(pc.alt_b * al); }
+                }
+                if (alt && (!alt_on || ap[0] != lastalt[0] || ap[1] != lastalt[1] || ap[2] != lastalt[2])) {
+                    std::snprintf(esc, sizeof esc, "\x1b[48;2;%d;%d;%dm", ap[0], ap[1], ap[2]);
+                    out += esc;
+                    alt_on = true;
+                    std::memcpy(lastalt, ap, sizeof lastalt);
+                } else if (!alt && alt_on) {
+                    out += "\x1b[49m";
+                    alt_on = false;
+                }
+            }
+            if (ch == U' ' && !inv) { out += ' '; continue; }
             if (color) {
                 int px[3];
-                for (int c = 0; c < 3; c++)
-                    px[c] = quant(F.rgb[(i * C + j) * 3 + c]);
+                if (pc.text) { px[0] = detail::byte(pc.r); px[1] = detail::byte(pc.g); px[2] = detail::byte(pc.b); }
+                else { px[0] = quant(pc.r); px[1] = quant(pc.g); px[2] = quant(pc.b); }
                 if (px[0] != last[0] || px[1] != last[1] || px[2] != last[2]) {
                     std::snprintf(esc, sizeof esc, "\x1b[38;2;%d;%d;%dm", px[0], px[1], px[2]);
                     out += esc;
                     std::memcpy(last, px, sizeof last);
                 }
             }
-            out += ch;
+            detail::append_utf8(out, ch);
         }
         if (color || on) out += "\x1b[0m";
         if (erase) out += "\x1b[K";
@@ -246,21 +409,29 @@ inline std::string render_plain(const Picture& F, int R, int C, double t, int fp
 // a colour. It knows nothing about terminals. Every scene has its own, and a
 // Display (below) shows whichever one it is given.
 struct VtCell {
-    char ch = ' ';
+    char32_t ch = U' ';
     bool inv = false;
     unsigned char r = 0, g = 0, b = 0;
+    bool alt = false;                         // an alt colour is set (see PicCell)
+    unsigned char ar = 0, ag = 0, ab = 0;     // it, already scaled by its brightness
 
     bool operator==(const VtCell& o) const {
-        return ch == o.ch && inv == o.inv && r == o.r && g == o.g && b == o.b;
+        return ch == o.ch && inv == o.inv && r == o.r && g == o.g && b == o.b &&
+               alt == o.alt && ar == o.ar && ag == o.ag && ab == o.ab;
     }
     bool operator!=(const VtCell& o) const { return !(*this == o); }
 };
 
-inline VtCell make_cell(char ch, bool inv, int r, int g, int b) {
-    if (ch == ' ' && !inv) r = g = b = 0;     // a plain space has no visible colour
+inline VtCell make_cell(char32_t ch, bool inv, int r, int g, int b, bool alt = false,
+                        int ar = 0, int ag = 0, int ab = 0) {
+    if (ch == U' ' && !inv) r = g = b = 0;     // a plain space has no visible letter colour
     VtCell k;
     k.ch = ch; k.inv = inv;
     k.r = (unsigned char)r; k.g = (unsigned char)g; k.b = (unsigned char)b;
+    if (alt) {
+        k.alt = true;
+        k.ar = (unsigned char)ar; k.ag = (unsigned char)ag; k.ab = (unsigned char)ab;
+    }
     return k;
 }
 
@@ -269,8 +440,9 @@ struct VtScreen {
     std::vector<VtCell> cell;                 // rows * cols, row by row
 
     void init(int R, int C) { rows = R; cols = C; cell.assign((size_t)R * C, VtCell()); }
-    void set(int i, int j, char ch, bool inv, int r, int g, int b) {
-        cell[(size_t)i * cols + j] = make_cell(ch, inv, r, g, b);
+    void set(int i, int j, char32_t ch, bool inv, int r, int g, int b, bool alt = false,
+             int ar = 0, int ag = 0, int ab = 0) {
+        cell[(size_t)i * cols + j] = make_cell(ch, inv, r, g, b, alt, ar, ag, ab);
     }
     const VtCell& at(int i, int j) const { return cell[(size_t)i * cols + j]; }
 };
@@ -310,7 +482,7 @@ inline void write_all(const std::string& s) {
 #endif
 }
 
-// The status line text, exactly cols wide. actual = frames really drawn per
+// The status line text (UTF-8), exactly cols characters wide. actual = frames really drawn per
 // second over the last second (< 0: not known yet).
 inline std::string status_text(const Info& info, int cols, double t, bool loop,
                                double actual, int fps) {
@@ -322,11 +494,12 @@ inline std::string status_text(const Info& info, int cols, double t, bool loop,
         std::snprintf(right, sizeof right, "running  %5.1fs  %s", t, fpstext);
     else
         std::snprintf(right, sizeof right, "running  %4.1fs / %.0fs  %s", t, info.duration, fpstext);
-    std::string left = info.title;
-    int pad = std::max(1, cols - (int)left.size() - (int)std::strlen(right));
-    std::string line = (left + std::string(pad, ' ') + right).substr(0, cols);
-    line.resize(cols, ' ');
-    return line;
+    const std::u32string left = detail::to_u32(info.title);
+    const std::u32string r32 = detail::to_u32(right);
+    int pad = std::max(1, cols - (int)left.size() - (int)r32.size());
+    std::u32string line = left + std::u32string((size_t)pad, U' ') + r32;
+    line.resize((size_t)cols, U' ');
+    return detail::to_utf8(line);
 }
 
 #if 0   // retired: the status line is now drawn by the Display
@@ -361,27 +534,43 @@ public:
     bool hash_letters = false;    // how the letter inside a group is chosen
     int  fps = 30;                // the shimmer speed follows this
 
-    // pic_rows is the height of the pictures it will be given; one more row is
-    // kept underneath for the status line.
+    // pic_rows is the height of the pictures it will be given (Picture::init's R);
+    // the status bar is one more row underneath, as in a Picture.
     void init(int pic_rows, int cols) {
         shown.init(pic_rows + 1, cols);
-        target.init(pic_rows, cols);
+        target.init(pic_rows + 1, cols);
     }
 
     // clear the terminal and forget everything: the next render sends it all
     std::string refresh() {
         for (VtCell& k : shown.cell) k = VtCell();
-        pen_inv = 0; pr = pg = pb = -1; cur_r = cur_c = -1;
+        pen_inv = 0; pr = pg = pb = -1; pen_alt = false; par = pag = pab = -1;
+        cur_r = cur_c = -1;
         return "\x1b[0m\x1b[H\x1b[2J";
     }
 
-    // pic: init()'s pic_rows by cols. t: seconds (drives the shimmer). status:
-    // one line, exactly cols wide, drawn in the accent colour in inverse video
-    // underneath the picture. Returns the bytes to write to the terminal.
-    std::string render(const Picture& pic, double t, const std::string& status,
-                       const int accent[3]) {
+    // pic: a whole screen, as made by Picture::init (the bar row included). t:
+    // seconds (drives the shimmer). Returns the bytes to write to the terminal.
+    std::string render(const Picture& pic, double t) {
         to_letters(pic, t);
-        return send(status, accent);
+        return send();
+    }
+
+    // Write the default status bar into the bottom row of pic: the scene's title
+    // (plus title_suffix, for a program to add its own hint), then the time and the
+    // measured / target fps, in the scene's accent colour, in inverse video (plain
+    // with --no-color). It is text cells like any other, so two bars cross-fade.
+    // A scene that wrote its own text in the bar row keeps it.
+    void bar(Picture& pic, const Info& info, double t, bool loop,
+             const std::string& title_suffix = "") const {
+        const int row = pic.bar_row();
+        for (int j = 0; j < pic.cols; j++)
+            if (pic.at(row, j).text) return;
+        const std::string title = std::string(info.title) + title_suffix;
+        Info shown_info = info;
+        shown_info.title = title.c_str();
+        pic.text(row, 0, status_text(shown_info, pic.cols, t, loop, actual_, fps),
+                 info.accent[0], info.accent[1], info.accent[2], color);
     }
 
     // ---- the terminal session: the part a program's main loop talks to ----
@@ -414,6 +603,8 @@ public:
                 std::exit(1);
             }
         }
+        old_cp_ = GetConsoleOutputCP();        // letters beyond ASCII go out as UTF-8
+        SetConsoleOutputCP(CP_UTF8);
         tty_in = GetConsoleMode(hin_, &mode) != 0;
         std::signal(SIGINT, on_sigint);
         std::signal(SIGTERM, on_sigint);
@@ -450,6 +641,7 @@ public:
         write_all("\x1b[0m\x1b[?25h\x1b[?1049l");
 #ifdef VTSCREEN_WINDOWS
         if (out_console_) SetConsoleMode(hout_, old_out_mode_);
+        if (old_cp_) SetConsoleOutputCP(old_cp_);
         if (tty_in) FlushConsoleInputBuffer(hin_);      // keys typed meanwhile are not for the shell
         if (timer_) { CloseHandle(timer_); timer_ = nullptr; }
 #else
@@ -472,12 +664,11 @@ public:
     void stop() { g_stop = 1; }
 
     // Draw a picture on the terminal now: refresh everything if it is due, then
-    // render() and write. info supplies the title, accent colour and duration for
-    // the status line; loop only changes how the time is shown there.
-    void show(const Picture& pic, double t, const Info& info, bool loop) {
+    // render() and write. Call bar() on the picture first to give it a status bar.
+    void show(const Picture& pic, double t) {
         std::string pre;
         if (t - last_refresh_ >= REFRESH_SECONDS) { pre = refresh(); last_refresh_ = t; }
-        write_all(pre + render(pic, t, status_text(info, cols_, t, loop, actual_, fps), info.accent));
+        write_all(pre + render(pic, t));
         fps_frames_++;
         if (t - fps_start_ >= 1.0) { actual_ = fps_frames_ / (t - fps_start_); fps_frames_ = 0; fps_start_ = t; }
     }
@@ -541,6 +732,7 @@ private:
 #ifdef VTSCREEN_WINDOWS
     HANDLE hout_ = nullptr, hin_ = nullptr, timer_ = nullptr;
     DWORD old_out_mode_ = 0;
+    UINT old_cp_ = 0;
     bool out_console_ = false;
 
     // take every key press waiting in the console: q quits, the rest are kept
@@ -573,38 +765,44 @@ private:
     VtScreen shown;                               // what the terminal is showing
     VtScreen target;                              // the picture as letters, this frame
     int pen_inv = 0, pr = -1, pg = -1, pb = -1;   // what the terminal will use next
+    bool pen_alt = false;                         // ... and its background colour (none, or
+    int par = -1, pag = -1, pab = -1;             //     this one)
     int cur_r = -1, cur_c = -1;                   // where its cursor is (-1: unknown)
 
     // brightness and colour -> letter, inverse flag and rounded colour per cell
     void to_letters(const Picture& F, double t) {
         const int R = target.rows, C = target.cols;
         for (int i = 0; i < R; i++) {
-            const std::string* hud = i < (int)F.hud.size() ? &F.hud[i] : nullptr;
             for (int j = 0; j < C; j++) {
-                if (hud && j < (int)hud->size()) {
-                    target.set(i, j, (*hud)[j], false, 170, 170, 170);
+                const PicCell& pc = F.cell[i * C + j];
+                const bool alt = color && pc.alt_lum > 0;
+                const double al = detail::clampd(pc.alt_lum, 0, 1);
+                if (pc.text) {                  // a letter the scene chose: as it is
+                    target.set(i, j, pc.ch, pc.inv, detail::byte(pc.r), detail::byte(pc.g),
+                               detail::byte(pc.b), alt, detail::byte(pc.alt_r * al),
+                               detail::byte(pc.alt_g * al), detail::byte(pc.alt_b * al));
                     continue;
                 }
                 bool inv;
-                char ch = pick_char(F.lum[i * C + j], i, j, t, fps, inv, hash_letters);
+                char ch = pick_char(pc.lum, i, j, t, fps, inv, hash_letters, pc.shimmer);
                 int px[3] = {0, 0, 0};
-                if (color)
-                    for (int c = 0; c < 3; c++) px[c] = quant(F.rgb[(i * C + j) * 3 + c]);
-                target.set(i, j, ch, inv, px[0], px[1], px[2]);
+                if (color) {
+                    px[0] = quant(pc.r); px[1] = quant(pc.g); px[2] = quant(pc.b);
+                }
+                target.set(i, j, ch, inv, px[0], px[1], px[2], alt, quant(pc.alt_r * al),
+                           quant(pc.alt_g * al), quant(pc.alt_b * al));
             }
         }
     }
 
-    // compare target (plus the status line) with shown and write the differences
-    std::string send(const std::string& status, const int accent[3]) {
+    // compare target with shown and write the differences
+    std::string send() {
         const int rows = shown.rows, cols = shown.cols;
         std::string out;
         char esc[40];
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                const VtCell k = i < target.rows
-                    ? target.at(i, j)
-                    : make_cell(status[j], color, accent[0], accent[1], accent[2]);
+                const VtCell k = target.at(i, j);
                 VtCell& sh = shown.cell[(size_t)i * cols + j];
                 if (k == sh) continue;
                 // A short gap of unchanged cells is cheaper to write again than to
@@ -613,12 +811,14 @@ private:
                     bool free = true;
                     for (int x = cur_c; x < j && free; x++) {
                         const VtCell& u = shown.at(i, x);
-                        bool plain = u.ch == ' ' && !u.inv;
+                        bool plain = u.ch == U' ' && !u.inv;
                         free = (int)u.inv == pen_inv &&
-                               (plain || !color || (pr == u.r && pg == u.g && pb == u.b));
+                               (plain || !color || (pr == u.r && pg == u.g && pb == u.b)) &&
+                               (!color || (u.alt ? pen_alt && par == u.ar && pag == u.ag && pab == u.ab
+                                                 : !pen_alt));
                     }
                     if (free) {
-                        for (int x = cur_c; x < j; x++) out += shown.at(i, x).ch;
+                        for (int x = cur_c; x < j; x++) detail::append_utf8(out, shown.at(i, x).ch);
                         cur_c = j;
                     }
                 }
@@ -632,12 +832,24 @@ private:
                     out += esc;
                 }
                 if (pen_inv != (int)k.inv) { out += k.inv ? "\x1b[7m" : "\x1b[27m"; pen_inv = k.inv; }
-                if (color && !(k.ch == ' ' && !k.inv) && (pr != k.r || pg != k.g || pb != k.b)) {
+                if (color) {
+                    if (k.alt) {
+                        if (!pen_alt || par != k.ar || pag != k.ag || pab != k.ab) {
+                            std::snprintf(esc, sizeof esc, "\x1b[48;2;%d;%d;%dm", k.ar, k.ag, k.ab);
+                            out += esc;
+                            pen_alt = true; par = k.ar; pag = k.ag; pab = k.ab;
+                        }
+                    } else if (pen_alt) {
+                        out += "\x1b[49m";
+                        pen_alt = false;
+                    }
+                }
+                if (color && !(k.ch == U' ' && !k.inv) && (pr != k.r || pg != k.g || pb != k.b)) {
                     std::snprintf(esc, sizeof esc, "\x1b[38;2;%d;%d;%dm", k.r, k.g, k.b);
                     out += esc;
                     pr = k.r; pg = k.g; pb = k.b;
                 }
-                out += k.ch;
+                detail::append_utf8(out, k.ch);
                 sh = k;
                 cur_r = i; cur_c = j + 1;
                 if (cur_c >= cols) cur_r = cur_c = -1;   // pending wrap: position unknown
@@ -662,7 +874,8 @@ inline void play(Scene& scene, const Options& o, int cols, int rows) {
         // from where it was instead of restarting at t = 0.
         if (t >= info.duration && !o.loop) break;
         scene.cycle(t);
-        display.show(scene.screen, t, info, o.loop);
+        display.bar(scene.screen, info, t, o.loop);
+        display.show(scene.screen, t);
         display.end_frame();
     }
 }

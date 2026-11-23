@@ -48,7 +48,6 @@ using vtscreen::Picture;
 namespace {
 
 static const double DURATION = 24.0;
-static const int HUD_ROWS = 3;
 
 static const double R_IN = 1.35;        // inner edge of the disk, in shadow radii
 static const double R_OUT = 4.0;        // outer edge
@@ -140,8 +139,7 @@ private:
 };
 
 void Singularity::frame(double t, Picture& F) {
-    F.lum.assign((size_t)R * C, 0.0);
-    F.rgb.assign((size_t)R * C * 3, 0.0);
+    F.init(R, C);
 
     // the disk tilts: 90 degrees would be edge on, 0 face on
     const double tilt = (70.0 + 8.0 * std::sin(2 * M_PI * t / DURATION)) * M_PI / 180.0;
@@ -232,19 +230,18 @@ void Singularity::frame(double t, Picture& F) {
                 }
             }
             size_t p = (size_t)i * C + j;
-            F.lum[p] = clampd(lum, 0.0, 1.0);
-            for (int c = 0; c < 3; c++) F.rgb[p * 3 + c] = col[c];
+            F.cell[p].lum = clampd(lum, 0.0, 1.0);
+            F.cell[p].r = col[0]; F.cell[p].g = col[1]; F.cell[p].b = col[2];
         }
     }
 
     char buf[64];
-    F.hud.resize(HUD_ROWS);
     std::snprintf(buf, sizeof buf, "tilt %.1f deg", tilt * 180.0 / M_PI);
-    F.hud[0] = buf;
+    F.text(0, 0, buf);
     std::snprintf(buf, sizeof buf, "inner spin %.1f s/turn", 2 * M_PI / OMEGA_IN);
-    F.hud[1] = buf;
+    F.text(1, 0, buf);
     std::snprintf(buf, sizeof buf, "hole r %.0f cols", bc);
-    F.hud[2] = buf;
+    F.text(2, 0, buf);
 }
 
 }  // namespace

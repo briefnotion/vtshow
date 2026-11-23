@@ -38,7 +38,6 @@ using vtscreen::Picture;
 namespace {
 
 static const double DURATION = 24.0;
-static const int HUD_ROWS = 3;
 
 // ---------------------------------------------------------------- small helpers
 
@@ -125,8 +124,7 @@ private:
 };
 
 void Bonfire::frame(double t, Picture& F) {
-    F.lum.assign((size_t)R * C, 0.0);
-    F.rgb.assign((size_t)R * C * 3, 0.0);
+    F.init(R, C);
 
     // the fire's mood at this moment
     const double flick = 1.0 + 0.05 * std::sin(t * 9.1) + 0.04 * std::sin(t * 15.7 + 1.0)
@@ -193,8 +191,8 @@ void Bonfire::frame(double t, Picture& F) {
                     }
                 }
             }
-            F.lum[(size_t)i * C + j] = lum;
-            for (int c = 0; c < 3; c++) F.rgb[((size_t)i * C + j) * 3 + c] = col[c];
+            auto& pc = F.at(i, j);
+            pc.lum = lum; pc.r = col[0]; pc.g = col[1]; pc.b = col[2];
         }
     }
 
@@ -215,12 +213,12 @@ void Bonfire::frame(double t, Picture& F) {
         double tw = 0.65 + 0.35 * std::sin(t * 2.0 + 17.0 * ph);
         double l = (0.085 + 0.10 * closeness) * std::sin(M_PI * frac) * tw * 1.6;
         size_t p = (size_t)ri * C + ci;
-        if (l > F.lum[p]) {
-            F.lum[p] = l;
+        if (l > F.cell[p].lum) {
+            F.cell[p].lum = l;
             double k = 0.55 + 0.9 * closeness;
-            F.rgb[p * 3 + 0] = clampd(150 * k, 0, 255);
-            F.rgb[p * 3 + 1] = clampd(125 * k, 0, 255);
-            F.rgb[p * 3 + 2] = clampd(110 * k, 0, 255);
+            F.cell[p].r = clampd(150 * k, 0, 255);
+            F.cell[p].g = clampd(125 * k, 0, 255);
+            F.cell[p].b = clampd(110 * k, 0, 255);
         }
     }
 
@@ -252,25 +250,25 @@ void Bonfire::frame(double t, Picture& F) {
             if (rr >= R) break;
             double l = (0.42 + 0.58 * bright) * (pass ? 0.45 : 1.0);
             size_t p = (size_t)rr * C + ci;
-            if (l > F.lum[p]) {
-                F.lum[p] = l;
-                for (int c = 0; c < 3; c++) F.rgb[p * 3 + c] = col[c] * (pass ? 0.8 : 1.0);
+            if (l > F.cell[p].lum) {
+                F.cell[p].lum = l;
+                const double dim = pass ? 0.8 : 1.0;
+                F.cell[p].r = col[0] * dim; F.cell[p].g = col[1] * dim; F.cell[p].b = col[2] * dim;
             }
         }
     }
 
     const double fade = 0.4 + 0.6 * smooth(t / 1.5);
-    for (double& v : F.lum) v = clampd(v * fade, 0, 1);
+    for (size_t p = 0; p < (size_t)R * C; p++) F.cell[p].lum = clampd(F.cell[p].lum * fade, 0, 1);
 
     char buf[64];
-    F.hud.resize(HUD_ROWS);
     std::snprintf(buf, sizeof buf, "flame %.1f m", 2.2 * Ht / Hc);
-    F.hud[0] = buf;
+    F.text(0, 0, buf);
     std::snprintf(buf, sizeof buf, "sparks %d", visible);
-    F.hud[1] = buf;
+    F.text(1, 0, buf);
     std::snprintf(buf, sizeof buf, "breeze %.0f km/h %s", 4.0 + 6.0 * std::fabs(wind),
                   wind > 0.05 ? "->" : (wind < -0.05 ? "<-" : "--"));
-    F.hud[2] = buf;
+    F.text(2, 0, buf);
 }
 
 }  // namespace

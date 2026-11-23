@@ -58,7 +58,6 @@ namespace {
 
 static const double DURATION = 24.0;
 static const double CYCLE = 24.0;
-static const int HUD_ROWS = 3;
 
 // ---------------------------------------------------------------- small helpers
 
@@ -206,9 +205,9 @@ private:
         if (row < 0 || row >= R || col < 0 || col >= C) return;
         if (row + 0.5 >= ridge[col]) return;                   // hidden behind the skyline
         size_t p = (size_t)row * C + col;
-        if (l > F.lum[p]) {
-            F.lum[p] = l;
-            for (int k = 0; k < 3; k++) F.rgb[p * 3 + k] = c[k];
+        if (l > F.cell[p].lum) {
+            F.cell[p].lum = l;
+            F.cell[p].r = c[0]; F.cell[p].g = c[1]; F.cell[p].b = c[2];
         }
     }
 };
@@ -223,8 +222,7 @@ struct Flight {
 };
 
 void Starburst::frame(double t, Picture& F) {
-    F.lum.assign((size_t)R * C, 0.0);
-    F.rgb.assign((size_t)R * C * 3, 0.0);
+    F.init(R, C);
 
     const long k = (long)std::floor(t / CYCLE);
 
@@ -319,8 +317,8 @@ void Starburst::frame(double t, Picture& F) {
                 if (s > lum) { lum = s; col[0] = 170; col[1] = 185; col[2] = 235; }
             }
             size_t p = (size_t)i * C + j;
-            F.lum[p] = std::min(lum, 1.0);
-            for (int c = 0; c < 3; c++) F.rgb[p * 3 + c] = col[c];
+            F.cell[p].lum = std::min(lum, 1.0);
+            F.cell[p].r = col[0]; F.cell[p].g = col[1]; F.cell[p].b = col[2];
         }
     }
 
@@ -489,14 +487,13 @@ void Starburst::frame(double t, Picture& F) {
 
     // ---- the readout
     char buf[64];
-    F.hud.resize(HUD_ROWS);
     std::snprintf(buf, sizeof buf, "shells fired %d", fired);
-    F.hud[0] = buf;
+    F.text(0, 0, buf);
     std::snprintf(buf, sizeof buf, "sparks alive %ld", alive);
-    F.hud[1] = buf;
+    F.text(1, 0, buf);
     if (latest) std::snprintf(buf, sizeof buf, "%s at %.0f m", STYLE_NAME[latest->style], latest_apex);
     else std::snprintf(buf, sizeof buf, "-");
-    F.hud[2] = buf;
+    F.text(2, 0, buf);
 }
 
 }  // namespace

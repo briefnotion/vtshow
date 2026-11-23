@@ -52,7 +52,6 @@ struct Storm { double across, width, strength; };
 static const Storm STORMS[] = {{0.14, 0.07, 0.9}, {0.52, 0.10, 0.7}, {0.84, 0.06, 1.0}};
 static const int NSTORMS = sizeof(STORMS) / sizeof(STORMS[0]);
 static const double DROPS = 0.03;         // raindrops per letter cell: a drizzle
-static const int HUD_ROWS = 3;
 
 struct BoltCell { int idx; double w; };
 struct Bolt {
@@ -233,8 +232,7 @@ static void frame(double t, Picture& F) {
     double storm_cx[NSTORMS];
     for (int q = 0; q < NSTORMS; q++) storm_cx[q] = pymod(STORMS[q].across * C + 0.5 * t, (double)C);
 
-    F.lum.assign((size_t)R * C, 0.0);
-    F.rgb.assign((size_t)R * C * 3, 0.0);
+    F.init(R, C);
     for (int i = 0; i < R; i++) {
         // clouds seen from below, in perspective: a flat layer above us that runs
         // off to the horizon, so the pattern shrinks and bunches up with distance
@@ -269,7 +267,7 @@ static void frame(double t, Picture& F) {
 
             // the hills are a dark shape against the sky, lit only a little
             if (i >= S.ridge[j]) lum = 0.004 + 0.07 * amb;
-            F.lum[(size_t)i * C + j] = lum;
+            F.at(i, j).lum = lum;
         }
     }
 
@@ -288,16 +286,19 @@ static void frame(double t, Picture& F) {
             if (r < rtop || r >= R || col < 0 || col >= C) continue;
             if (!(r < S.ridge[col])) continue;
             double w = (0.30 - 0.09 * k) * smooth((row - rtop) / 4.0) * (1 + 0.35 * std::min(amb, 1.0));
-            double& cell = F.lum[(size_t)r * C + col];
+            double& cell = F.at(r, col).lum;
             cell = std::max(cell, w);
         }
     }
 
     double fade = 0.5 + 0.5 * smooth(t / 1.0);                          // fade in
-    for (size_t p = 0; p < F.lum.size(); p++) {
-        double v = std::max(F.lum[p], bolt[p]);
-        F.lum[p] = clampd(v * fade, 0, 1);
-        palette(F.lum[p], &F.rgb[p * 3]);
+    for (size_t p = 0; p < (size_t)R * C; p++) {
+        auto& pc = F.cell[p];
+        double v = std::max(pc.lum, bolt[p]);
+        pc.lum = clampd(v * fade, 0, 1);
+        double rgb[3];
+        palette(pc.lum, rgb);
+        pc.r = rgb[0]; pc.g = rgb[1]; pc.b = rgb[2];
     }
 
     // which flash does the readout talk about: the latest one so far
@@ -310,14 +311,13 @@ static void frame(double t, Picture& F) {
     double wait = bd / SOUND - (tc - bt);
     char buf[64];
     std::snprintf(buf, sizeof buf, "%s %3.1f mm/h", mmh < 3 ? "drizzle" : "light rain", mmh);
-    F.hud.resize(HUD_ROWS);
-    F.hud[0] = buf;
+    F.text(0, 0, buf);
     std::snprintf(buf, sizeof buf, "flash %4.1f km away", bd);
-    F.hud[1] = buf;
+    F.text(1, 0, buf);
     if (bd >= FAR_KM) std::snprintf(buf, sizeof buf, "too far to hear");
     else if (wait > 0) std::snprintf(buf, sizeof buf, "thunder in %4.1f s", wait);
     else std::snprintf(buf, sizeof buf, "%s", wait > -1.5 ? "thunder!" : "quiet");
-    F.hud[2] = buf;
+    F.text(2, 0, buf);
 }
 
 // the scene as the vtscreen player sees it

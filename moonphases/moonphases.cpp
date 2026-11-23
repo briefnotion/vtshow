@@ -39,7 +39,6 @@ using vtscreen::Picture;
 namespace {
 
 static const double DURATION = 24.0;
-static const int HUD_ROWS = 3;
 static const double TILT = 0.35;           // radians: how far the line of the horns leans
 
 // ---------------------------------------------------------------- small helpers
@@ -150,8 +149,7 @@ static const char* phase_name(double p) {          // p: 0 new .. 0.5 full .. 1 
 }
 
 void Moonphases::frame(double t, Picture& F) {
-    F.lum.assign((size_t)R * C, 0.0);
-    F.rgb.assign((size_t)R * C * 3, 0.0);
+    F.init(R, C);
 
     // where in the cycle: 0 = new, 0.5 = full. t = 0 is a day or so after new moon,
     // so a play of 24 s ends on the new moon it began after.
@@ -243,18 +241,17 @@ void Moonphases::frame(double t, Picture& F) {
                 lum = lerp(lum, mlum, cov);
                 for (int c = 0; c < 3; c++) col[c] = lerp(col[c], mcol[c], cov);
             }
-            F.lum[(size_t)i * C + j] = clampd(lum, 0.0, 1.0);
-            for (int c = 0; c < 3; c++) F.rgb[((size_t)i * C + j) * 3 + c] = col[c];
+            auto& pc = F.at(i, j);
+            pc.lum = clampd(lum, 0.0, 1.0); pc.r = col[0]; pc.g = col[1]; pc.b = col[2];
         }
     }
 
     char buf[64];
-    F.hud.resize(HUD_ROWS);
-    F.hud[0] = phase_name(p);
+    F.text(0, 0, phase_name(p));
     std::snprintf(buf, sizeof buf, "%3.0f%% lit", ill * 100.0);
-    F.hud[1] = buf;
+    F.text(1, 0, buf);
     std::snprintf(buf, sizeof buf, "day %4.1f of 29.5", p * 29.5);
-    F.hud[2] = buf;
+    F.text(2, 0, buf);
 }
 
 }  // namespace

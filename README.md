@@ -60,14 +60,14 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
   running, restart the program.
 - Minimum size is 40 x 20 characters. Output is about 0.7 MiB/s at 150 x 60, 30 fps,
   in colour for the thunderstorm, and grows with `--fps`.
-- The status line at the bottom shows the scene, the time and `actual/target fps`,
+- The status bar at the bottom shows the scene, the time and `actual/target fps`,
   for example `29.9/30 fps`. If the first number is lower, the program or the
   terminal is not keeping up.
 
 `show` plays the bonfire, the moon, the fireworks, the black hole and the thunderstorm
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
 `FADE_SECONDS` in `show/show.cpp`). Press `h` to hold the scene that is up: the
-status line shows `[HOLD]` and the show stays on it (it keeps animating, and `n` still
+status bar shows `[HOLD]` and the show stays on it (it keeps animating, and `n` still
 moves on by hand) until you press `h` again.
 
 ## Windows
@@ -101,10 +101,10 @@ any problem.
     ------------------                 ----------------------------------------
     setup(cols, rows)                  Display: the terminal session (size,
     frame(t, Picture&):                  alternate screen, keys, Ctrl-C), the clock,
-      a brightness 0..1 and a            the fps counter, the status line
-      colour for every cell            letters: 16 steps, the top eight in inverse
-                                         video, plus a shimmer that follows --fps
-                                       colours rounded to 16 levels per channel
+      for every cell a brightness        the fps counter, the status bar
+      0..1, a colour and a shimmer     letters: 16 steps, the top eight in inverse
+      speed, or a letter of its own      video, plus a shimmer that follows --fps
+      (text, such as the readout)      colours rounded to 16 levels per channel
                                        compares with what the terminal shows and
                                          sends only the differences
                                        fade(a, b, pct): mix two pictures
@@ -113,6 +113,54 @@ A scene never sees a letter or an escape code. Because a `Picture` is just numbe
 two of them can be mixed cell by cell and the letters picked once for the result,
 which is how the cross-fade works. Only the scene on screen (and the one fading
 out) is computed.
+
+A `Picture` is a grid of `PicCell`s, the same shape and size as the `VtScreen` of
+finished letters that the Display keeps: the whole terminal, with the status bar as its
+last row. `F.init(R, C)` takes the rows of the picture proper (what `setup()` was given)
+and adds the bar row underneath; `F.at(i, j)` reaches a cell, `F.bar_row()` the bar. A
+scene fills in, for each cell:
+
+| field | meaning |
+|---|---|
+| `lum` | brightness, 0 to 1 |
+| `r`, `g`, `b` | colour, 0 to 255 |
+| `shimmer` | how fast the cell's letter rotates inside its brightness group: 1 (the default) is the normal rate, 0 holds the letter still, 2 is twice as fast. A star could use 0.2 for a slow twinkle and an ember 3. A cell cannot change letter more than once a frame, so at 30 fps nothing above about 2.5 looks different |
+| `alt_lum`, `alt_r`, `alt_g`, `alt_b` | the alt colour, the other colour of the pair: brightness 0 to 1 and colour 0 to 255. See below. The default, `alt_lum = 0`, means none |
+| `text`, `ch`, `inv` | a letter the scene chooses itself: when `text` is set the cell is drawn as the character `ch` (inverse video if `inv`) in the colour `r`, `g`, `b`, and `lum` and `shimmer` are ignored |
+
+`shimmer` only chooses which letter of the group shows. For a cell that dims and
+brightens, the scene also varies `lum`. `init()` resets every cell to the defaults
+each frame, so a scene only sets what it wants different.
+
+**The alt colour.** Every cell is drawn with two colours: the primary `r, g, b` and an
+alt colour. In a dim cell (`lum` below 0.5) the primary is the letter and the alt is the
+background behind it. In a bright cell (0.5 and above, drawn in inverse video) the
+primary is the solid block and the alt is the letter on it. So a meadow can be a dark
+green block with lighter green letters: set `lum` above 0.5, `r, g, b` to the dark green,
+and `alt_lum = 1` with `alt_r, alt_g, alt_b` the light green. The colour shown is
+`alt_r, alt_g, alt_b` scaled by `alt_lum`, and `alt_lum = 0` (the default) means no alt
+colour: the terminal's own colour is left alone and nothing extra is sent, so a scene
+that never sets it looks and costs what it always did. The primary decides the letter and
+the flip at 0.5; the alt never does. `--no-color` ignores the alt, like all colour.
+In a fade the alt's brightness and colour are mixed like the rest, so an alt that one
+scene lacks fades toward none.
+
+**Text.** `F.text(row, col, "flame 2.2 m")` writes a string as text cells, in the readout
+grey unless you give a colour: `F.text(row, col, s, r, g, b, inv)`. The scenes use it
+for the readout in the top-left corner. Text is UTF-8 and each cell holds one Unicode
+character (`char32_t`), so `°`, `─` or `█` work. Every character is taken to be one
+column wide: wide characters (Chinese, emoji) and combining marks are not handled. On
+Windows the console is switched to UTF-8 while the program runs.
+
+**The status bar.** `Display::bar(picture, info, t, loop, suffix)` writes the default
+bar into the bottom row as text cells: the scene's title (and the suffix, which `show`
+uses for `[n h]` or `[HOLD]`), the time and the actual and target fps, in inverse video
+in the scene's accent colour. `play()` and `show` call it for you. A scene that writes
+its own text in the bar row keeps it. Because the bar is cells like the rest, a
+cross-fade mixes the two bars' colours; the characters switch at the halfway point.
+In a fade, text cells follow that rule: where both pictures have text the colours are
+mixed and the letter comes from the picture that is ahead; where only one has text, that
+cell is taken as it is.
 
 ## Writing a scene
 
