@@ -16,9 +16,13 @@ Included scenes:
   (peony, chrysanthemum, ring, willow, double burst) in a theme colour with accent
   and glitter sparks, sparks that are braked by air drag, hang and sink while cooling
   from white-hot to ember red, faint clouds lit by each burst, and a finale.
-- `singularity`: a black hole with a glowing, turning accretion disk seen at a tilt,
-  brighter on the side moving towards us, light from behind the hole bent over and
-  under it, and stars bent and stretched round it.
+- `singularity`: a black hole with a glowing, turning accretion disk seen at a tilt.
+  The paths of light round the hole are worked out (for a hole that does not spin), so
+  the disk's light is bent right round it: an arc over the top, a fainter second image
+  below and a thin ring at the shadow's edge. The disk's brightness is the real flux of
+  a thin disk, its colour is the colour of a black body at its temperature, and the
+  Doppler and gravitational shifts make the side coming towards us hotter and brighter.
+  The stars are bent and stretched round it.
 - `thunderstorm`: storm clouds in perspective, drizzle, distant rain curtains,
   lightning at different distances, thunder arriving after the flash.
 
