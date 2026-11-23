@@ -25,6 +25,11 @@ Included scenes:
   The stars are bent and stretched round it.
 - `thunderstorm`: storm clouds in perspective, drizzle, distant rain curtains,
   lightning at different distances, thunder arriving after the flash.
+- `meadow`: a green meadow in the wind: rolling hills fading into haze, a lone tree on a
+  ridge, flowers in the grass and clouds drifting across a blue sky. Gusts run across
+  the grass in waves, seen in perspective: where one passes the blades shimmer faster
+  and turn silver, the tree's leaves move with it, and cloud shadows slide over the
+  hills. The letter is the blade and the second colour is the dark ground between them.
 
 You can write more; see "Writing a scene".
 
@@ -38,7 +43,7 @@ time, comes from the **python.animate** YouTube channel:
 
 The table of letter groups (`LEVELS` in `vtscreen/vtscreen.h`) is the channel's.
 Everything else in this repo, including the bonfire, moonphases, starburst,
-singularity and thunderstorm scenes, was written for this project, with Claude.
+singularity, thunderstorm and meadow scenes, was written for this project, with Claude.
 Those scenes are original, not copies or translations of anything by the channel.
 This is an unofficial personal project, not affiliated with or endorsed by the
 channel. I have also made C++ ports of some of the channel's animations for my own
@@ -51,7 +56,7 @@ Requirements: Linux, `g++` with C++17 support, and a terminal. Nothing else.
 
     ./build.sh
 
-    ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm)
+    ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm, meadow)
     ./show/show                            the show (q quits, n or space: next scene,
                                            h: hold the scene that is up, h again: let go)
 
@@ -69,7 +74,7 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
   for example `29.9/30 fps`. If the first number is lower, the program or the
   terminal is not keeping up.
 
-`show` plays the bonfire, the moon, the fireworks, the black hole and the thunderstorm
+`show` plays the bonfire, the moon, the fireworks, the black hole, the thunderstorm and the meadow
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
 `FADE_SECONDS` in `show/show.cpp`). Press `h` to hold the scene that is up: the
 status bar shows `[HOLD]` and the show stays on it (it keeps animating, and `n` still
@@ -86,7 +91,7 @@ any problem.
 
 - **Visual C++ (easiest):** run `build.bat` from a normal Command Prompt or
   PowerShell (or double-click it). It finds Visual Studio itself (2019 or later,
-  with "Desktop development with C++") and builds the five scenes and the show as
+  with "Desktop development with C++") and builds the six scenes and the show as
   `.exe` files next to their sources, the same layout as `build.sh`:
   `show\show.exe`, `bonfire\bonfire.exe --loop` and so on.
 - **MinGW-w64 (for example MSYS2, "MINGW64" shell):** the same `./build.sh` works,
@@ -94,7 +99,7 @@ any problem.
   `g++ -O2 -std=c++17 -static -o show/show show/show.cpp ...` as in `build.sh`.
 - **Visual C++ by hand (x64 Native Tools prompt)**, one program, for example:
   `cl /nologo /std:c++17 /O2 /EHsc /utf-8 /Fe:thunderstorm\thunderstorm.exe thunderstorm\thunderstorm.cpp`
-  and for the show, add `/DVTSHOW_NO_MAIN show\show.cpp` and the five scene files.
+  and for the show, add `/DVTSHOW_NO_MAIN show\show.cpp` and the six scene files.
 - With Visual C++ the thunderstorm's random details (its hills and drops) differ a
   little from Linux and MinGW, because the standard library's random distributions
   are not the same everywhere.

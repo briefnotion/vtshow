@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
     scenes.push_back(make_starburst());
     scenes.push_back(make_singularity());
     scenes.push_back(make_thunderstorm());
+    scenes.push_back(make_meadow());
     const int count = (int)scenes.size();
 
     vtscreen::Display display;

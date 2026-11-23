@@ -13,3 +13,4 @@ std::unique_ptr<vtscreen::Scene> make_moonphases();
 std::unique_ptr<vtscreen::Scene> make_starburst();
 std::unique_ptr<vtscreen::Scene> make_singularity();
 std::unique_ptr<vtscreen::Scene> make_thunderstorm();
+std::unique_ptr<vtscreen::Scene> make_meadow();
