@@ -7,7 +7,7 @@ rem To add a scene, list it in SCENES below as well as in build.sh.
 setlocal
 cd /d "%~dp0"
 
-set "SCENES=bonfire moonphases starburst singularity thunderstorm meadow"
+set "SCENES=bonfire moonphases starburst singularity thunderstorm meadow matrix"
 set "FLAGS=/nologo /std:c++17 /O2 /EHsc /utf-8 /W3"
 
 rem Not in a Native Tools prompt: find Visual Studio and set up the x64 compiler.

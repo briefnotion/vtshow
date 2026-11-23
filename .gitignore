@@ -5,6 +5,7 @@ starburst/starburst
 singularity/singularity
 thunderstorm/thunderstorm
 meadow/meadow
+matrix/matrix
 show/show
 # Windows (build.bat)
 *.exe

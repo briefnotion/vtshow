@@ -6,7 +6,7 @@
 set -e
 cd "$(dirname "$0")"
 
-SCENES="bonfire moonphases starburst singularity thunderstorm meadow"
+SCENES="bonfire moonphases starburst singularity thunderstorm meadow matrix"
 FLAGS="-O2 -std=c++17"
 case "$(uname -s)" in
     MINGW*) FLAGS="$FLAGS -static" ;;    # MSYS2 MinGW-w64 on Windows: no DLLs needed to run
