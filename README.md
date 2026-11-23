@@ -9,7 +9,8 @@ Included scenes:
 - `bonfire`: a fire on the ground, with flames that lick and sway in a breeze, a
   warm glow on the ground, rising sparks and specks of ash.
 - `moonphases`: a moon on a starry sky that goes through a whole cycle of phases in
-  24 seconds, with earthshine on the dark side, dark seas and craters.
+  24 seconds, with earthshine on the dark side and the real dark seas and craters
+  at their true positions and sizes (Tranquillitatis, Imbrium, Tycho and the rest).
 - `starburst`: fireworks over a night sky, with real physics: shells fired from the
   middle that climb for 3 to 4 seconds on a ballistic arc, bursts in several styles
   (peony, chrysanthemum, ring, willow, double burst) in a theme colour with accent
