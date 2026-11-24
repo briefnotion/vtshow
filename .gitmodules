@@ -1,0 +1,3 @@
+[submodule "vtscreen"]
+	path = vtscreen
+	url = https://github.com/briefnotion/vtscreen.git

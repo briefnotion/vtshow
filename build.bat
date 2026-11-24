@@ -7,6 +7,12 @@ rem To add a scene, list it in SCENES below as well as in build.sh.
 setlocal
 cd /d "%~dp0"
 
+if not exist vtscreen\vtscreen.h (
+    echo vtscreen\vtscreen.h is missing: the library is a git submodule. Run:
+    echo     git submodule update --init
+    exit /b 1
+)
+
 set "SCENES=bonfire moonphases starburst singularity thunderstorm meadow matrix"
 set "FLAGS=/nologo /std:c++17 /O2 /EHsc /utf-8 /W3"
 

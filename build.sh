@@ -6,6 +6,12 @@
 set -e
 cd "$(dirname "$0")"
 
+if [ ! -f vtscreen/vtscreen.h ]; then
+    echo "vtscreen/vtscreen.h is missing: the library is a git submodule. Run:" >&2
+    echo "    git submodule update --init" >&2
+    exit 1
+fi
+
 SCENES="bonfire moonphases starburst singularity thunderstorm meadow matrix"
 FLAGS="-O2 -std=c++17"
 case "$(uname -s)" in
