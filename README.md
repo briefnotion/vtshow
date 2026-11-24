@@ -64,6 +64,7 @@ Requirements: Linux, `g++` with C++17 support, and a terminal. Nothing else.
 
     ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm, meadow, matrix)
     ./show/show                            the show (q quits, n or space: next scene,
+                                           p or b: previous, 1-9: that scene,
                                            h: hold the scene that is up, h again: let go)
 
 Options, for both programs: `--fps N` (default 30), `--no-color`, `--cols N --rows N`.
@@ -83,8 +84,14 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
 `show` plays the bonfire, the moon, the fireworks, the black hole, the thunderstorm, the meadow and the matrix
 in turn: 30 seconds alone on screen, then a 10 second cross-fade (`STAY_SECONDS` and
 `FADE_SECONDS` in `show/show.cpp`). Press `h` to hold the scene that is up: the
-status bar shows `[HOLD]` and the show stays on it (it keeps animating, and `n` still
-moves on by hand) until you press `h` again.
+status bar shows `HOLD` and the show stays on it (it keeps animating) until you press
+`h` again. The status bar also shows the scene's number, like `3/7`.
+
+By hand, `n` (or space) goes to the next scene, `p` or `b` to the previous one and
+`1` to `9` to that scene. The keys work at any time, in the middle of a fade too: the
+new scene starts fading in over whatever is on screen, so the picture never jumps. Up
+to three scenes can be on screen at once; another press while three are up drops the
+oldest.
 
 ## Windows
 
