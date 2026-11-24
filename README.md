@@ -73,8 +73,11 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
 
 - Colour is 24-bit. Most desktop terminals and SSH clients support it; the plain
   Linux text console does not, so use `--no-color` there.
-- The size is read when the program starts. If you resize the window while it is
-  running, restart the program.
+- If you resize the window while a program is running, it follows: the display is made
+  again at the new size, every scene is set up again for it, the clock and any fade carry
+  on, and the screen is cleared and redrawn. A terminal smaller than the minimum is not
+  followed. With `--cols` or `--rows` that dimension stays as you gave it. On Linux this
+  uses the terminal's resize signal (`SIGWINCH`); see Windows below.
 - Minimum size is 40 x 20 characters. Output is about 0.7 MiB/s at 150 x 60, 30 fps,
   in colour for the thunderstorm, and grows with `--fps`.
 - The status bar at the bottom shows the scene, the time and `actual/target fps`,
@@ -100,7 +103,8 @@ uses the Windows console API instead of termios and poll). It needs **Windows 10
 later**; Windows Terminal is the best place to run it. It builds cleanly, with no
 warnings, with Visual Studio 2026 (MSVC 14.51, x64), and every scene prints a correct
 frame with `--still`. The live animation in the Windows console has not been tested yet; report
-any problem.
+any problem. Resizing the window while the program runs is not followed on Windows yet
+(restart the program); it is Linux only for now.
 
 - **Visual C++ (easiest):** run `build.bat` from a normal Command Prompt or
   PowerShell (or double-click it). It finds Visual Studio itself (2019 or later,
@@ -191,6 +195,9 @@ Derive from `vtscreen::Scene` (`info()`, `setup(cols, rows)`, `frame(t, Picture&
 put its internals in an anonymous namespace, and end the file with a factory like
 `make_thunderstorm()` (see `thunderstorm/thunderstorm.cpp`, `bonfire/bonfire.cpp` and
 `scenes.h`). For a single-scene program, `main` is `vtscreen::run(scene, argc, argv)`.
+`setup(cols, rows)` is called again, with the new size, whenever the terminal is resized,
+so it must start the scene's state over from scratch each time rather than rely on being
+called once; `frame()` stays a pure function of `t`.
 The comment at the top of `vtscreen/vtscreen.h` has a short example. Compile a scene with
 `-DVTSHOW_NO_MAIN` to leave out its `main` so it can be linked into `show`.
 

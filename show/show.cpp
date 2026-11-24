@@ -12,6 +12,9 @@
 // never jumps. Up to 3 scenes can be on screen at once; a further press while three
 // are up drops the oldest.
 //
+// If the terminal is resized the display and every scene are set up again at the new
+// size (vtscreen::follow_resize); the clock and any fade carry on.
+//
 // h holds the scene that is up: the timer no longer moves on (the status line shows
 // HOLD). The scene keeps animating, and the keys above still work. Press h again to
 // let go; the scene then gets a full STAY_SECONDS before the next fade.
@@ -81,6 +84,13 @@ int main(int argc, char** argv) {
     vtscreen::Picture mixed, scratch;
     while (!display.stopping()) {
         double t = display.time();
+
+        // the window changed size: the display and every scene start over at the new
+        // size, the clock and the fades carry on
+        if (vtscreen::follow_resize(display, o, cols, rows)) {
+            display.resize(cols, rows);
+            for (auto& sc : scenes) sc->setup(cols, rows - 1);
+        }
 
         // keys: n or space = next, p or b = previous, 1-9 = that scene, h = hold
         int target = -1;

@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cerrno>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -237,8 +238,9 @@ class Scene {
 public:
     virtual ~Scene() = default;
     virtual Info info() const = 0;
-    // Called once the size is known. rows is the picture only: the status line
-    // takes one more row underneath.
+    // Called once the size is known, and again each time the terminal is resized
+    // (so it must start the scene's state over). rows is the picture only: the
+    // status line takes one more row underneath.
     virtual void setup(int cols, int rows) = 0;
     // Fill F for time t (seconds). A pure function of t is easiest to reason about.
     virtual void frame(double t, Picture& F) = 0;
@@ -460,6 +462,10 @@ struct Options {
 
 inline volatile sig_atomic_t g_stop = 0;
 inline void on_sigint(int) { g_stop = 1; }
+// The terminal sends SIGWINCH when its window changes size. The handler can only set
+// a flag; Display::resized() reads it from the main loop.
+inline volatile sig_atomic_t g_resized = 0;
+inline void on_sigwinch(int) { g_resized = 1; }
 
 inline void write_all(const std::string& s) {
     const char* p = s.data();
@@ -539,6 +545,16 @@ public:
     void init(int pic_rows, int cols) {
         shown.init(pic_rows + 1, cols);
         target.init(pic_rows + 1, cols);
+    }
+
+    // The terminal changed size: cols x rows is the whole terminal, as in open().
+    // The buffers are made again at the new size, the terminal is cleared and the
+    // next frame sends everything. The pictures given from now on must be the new
+    // size (Picture::init(rows - 1, cols), which the scenes do from their setup()).
+    void resize(int cols, int rows) {
+        cols_ = cols; rows_ = rows;
+        init(rows - 1, cols);
+        write_all(refresh());
     }
 
     // clear the terminal and forget everything: the next render sends it all
@@ -621,6 +637,9 @@ public:
         sa.sa_handler = on_sigint;
         sigaction(SIGINT, &sa, nullptr);
         sigaction(SIGTERM, &sa, nullptr);
+        sa.sa_handler = on_sigwinch;                // window resized (see resized())
+        sigaction(SIGWINCH, &sa, nullptr);
+        term_size(term_cols_, term_rows_);
 
         write_all("\x1b[?1049h\x1b[?25l\x1b[2J");
         if (tty_in) {
@@ -653,6 +672,25 @@ public:
 
     int cols() const { return cols_; }
     int pic_rows() const { return rows_ - 1; }
+
+    // True once if the terminal's window has changed size since open() or the last
+    // time this said so, and then cols, rows are its new size (the whole terminal,
+    // as resolve_size() gives it). It only reports: nothing is redrawn or set up
+    // again here. Linux only for now (SIGWINCH); on Windows it is always false.
+    bool resized(int& cols, int& rows) {
+#ifdef VTSCREEN_WINDOWS
+        (void)cols; (void)rows;
+        return false;
+#else
+        if (!g_resized) return false;
+        g_resized = 0;                          // before asking, so a later change is not lost
+        int c, r;
+        if (!term_size(c, r) || (c == term_cols_ && r == term_rows_)) return false;
+        term_cols_ = cols = c;
+        term_rows_ = rows = r;
+        return true;
+#endif
+    }
 
     // Start the clock (call it once the scenes are set up, so t starts at 0).
     void start() {
@@ -710,18 +748,28 @@ public:
         }
         read_keys();
 #else
+        // A signal (the window being resized, say) cuts a wait short; wait out the rest
+        // so the frames keep their pace.
         if (tty_in) {
-            pollfd pfd{STDIN_FILENO, POLLIN, 0};
-            int ms = wait > 0 ? (int)(wait * 1000) : 0;
-            if (poll(&pfd, 1, ms) > 0) {
-                char c;
-                while (read(STDIN_FILENO, &c, 1) == 1) {
-                    if (c == 'q' || c == 'Q') g_stop = 1;
-                    else keys_.push_back(c);
+            for (;;) {
+                pollfd pfd{STDIN_FILENO, POLLIN, 0};
+                double remaining = n_ * dt - time();
+                int ms = remaining > 0 ? (int)(remaining * 1000) : 0;
+                int rc = poll(&pfd, 1, ms);
+                if (rc > 0) {
+                    char c;
+                    while (read(STDIN_FILENO, &c, 1) == 1) {
+                        if (c == 'q' || c == 'Q') g_stop = 1;
+                        else keys_.push_back(c);
+                    }
+                } else if (rc < 0 && errno == EINTR && !g_stop && n_ * dt - time() > 0.001) {
+                    continue;
                 }
+                break;
             }
-        } else if (wait > 0) {
-            usleep((useconds_t)(wait * 1e6));
+        } else {
+            for (double rem = n_ * dt - time(); rem > 0 && !g_stop; rem = n_ * dt - time())
+                usleep((useconds_t)(rem * 1e6));
         }
 #endif
     }
@@ -754,6 +802,15 @@ private:
     }
 #else
     termios old_tio{};
+
+    // the terminal window's size now; false if it cannot be asked
+    static bool term_size(int& c, int& r) {
+        winsize ws{};
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) return false;
+        c = ws.ws_col; r = ws.ws_row;
+        return true;
+    }
+    int term_cols_ = 0, term_rows_ = 0;           // the size resized() last saw
 #endif
     int cols_ = 0, rows_ = 0;
     std::string keys_;                            // keys pressed, not yet read
@@ -861,6 +918,20 @@ private:
 
 // ---------------------------------------------------------------- the player
 
+// Has the terminal changed size, and should the program follow? If so, true, and
+// cols, rows are the new size to use: the terminal's, except that --cols or --rows
+// keep their dimension fixed. A size under the minimum is not followed (cols, rows
+// stay as they were), and neither is one that is no change. Call it once a frame.
+inline bool follow_resize(Display& display, const Options& o, int& cols, int& rows) {
+    int c, r;
+    if (!display.resized(c, r)) return false;
+    if (o.cols) c = o.cols;
+    if (o.rows) r = o.rows;
+    if (c < 40 || r < 20 || (c == cols && r == rows)) return false;
+    cols = c; rows = r;
+    return true;
+}
+
 inline void play(Scene& scene, const Options& o, int cols, int rows) {
     const Info info = scene.info();
     Display display;
@@ -870,6 +941,10 @@ inline void play(Scene& scene, const Options& o, int cols, int rows) {
     display.start();
     while (!display.stopping()) {
         double t = display.time();
+        if (follow_resize(display, o, cols, rows)) {
+            display.resize(cols, rows);
+            scene.setup(cols, rows - 1);
+        }
         // With --loop the clock just keeps running: the scene carries on
         // from where it was instead of restarting at t = 0.
         if (t >= info.duration && !o.loop) break;
