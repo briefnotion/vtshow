@@ -622,6 +622,11 @@ public:
         old_cp_ = GetConsoleOutputCP();        // letters beyond ASCII go out as UTF-8
         SetConsoleOutputCP(CP_UTF8);
         tty_in = GetConsoleMode(hin_, &mode) != 0;
+        if (tty_in) {                          // have the console report a resized window too
+            old_in_mode_ = mode;
+            SetConsoleMode(hin_, mode | ENABLE_WINDOW_INPUT);
+        }
+        term_size(term_cols_, term_rows_);
         std::signal(SIGINT, on_sigint);
         std::signal(SIGTERM, on_sigint);
         // a high-resolution timer for the wait between frames (Windows 10 1803 and
@@ -661,7 +666,10 @@ public:
 #ifdef VTSCREEN_WINDOWS
         if (out_console_) SetConsoleMode(hout_, old_out_mode_);
         if (old_cp_) SetConsoleOutputCP(old_cp_);
-        if (tty_in) FlushConsoleInputBuffer(hin_);      // keys typed meanwhile are not for the shell
+        if (tty_in) {
+            SetConsoleMode(hin_, old_in_mode_);
+            FlushConsoleInputBuffer(hin_);              // keys typed meanwhile are not for the shell
+        }
         if (timer_) { CloseHandle(timer_); timer_ = nullptr; }
 #else
         if (tty_in) tcsetattr(STDIN_FILENO, TCSADRAIN, &old_tio);
@@ -676,12 +684,9 @@ public:
     // True once if the terminal's window has changed size since open() or the last
     // time this said so, and then cols, rows are its new size (the whole terminal,
     // as resolve_size() gives it). It only reports: nothing is redrawn or set up
-    // again here. Linux only for now (SIGWINCH); on Windows it is always false.
+    // again here. The flag behind it is set by SIGWINCH on Linux and by the
+    // console's window-size event on Windows (read with the keys).
     bool resized(int& cols, int& rows) {
-#ifdef VTSCREEN_WINDOWS
-        (void)cols; (void)rows;
-        return false;
-#else
         if (!g_resized) return false;
         g_resized = 0;                          // before asking, so a later change is not lost
         int c, r;
@@ -689,7 +694,6 @@ public:
         term_cols_ = cols = c;
         term_rows_ = rows = r;
         return true;
-#endif
     }
 
     // Start the clock (call it once the scenes are set up, so t starts at 0).
@@ -779,11 +783,21 @@ private:
     bool is_open = false, tty_in = false;
 #ifdef VTSCREEN_WINDOWS
     HANDLE hout_ = nullptr, hin_ = nullptr, timer_ = nullptr;
-    DWORD old_out_mode_ = 0;
+    DWORD old_out_mode_ = 0, old_in_mode_ = 0;
     UINT old_cp_ = 0;
     bool out_console_ = false;
 
-    // take every key press waiting in the console: q quits, the rest are kept
+    // the console window's size now; false if it cannot be asked
+    bool term_size(int& c, int& r) const {
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        if (!GetConsoleScreenBufferInfo(hout_, &info)) return false;
+        c = info.srWindow.Right - info.srWindow.Left + 1;
+        r = info.srWindow.Bottom - info.srWindow.Top + 1;
+        return c > 0 && r > 0;
+    }
+
+    // take every key press waiting in the console: q quits, the rest are kept. A
+    // window-size record only raises the flag that resized() looks at.
     void read_keys() {
         if (!tty_in) return;
         INPUT_RECORD rec[64];
@@ -791,6 +805,7 @@ private:
         while (GetNumberOfConsoleInputEvents(hin_, &avail) && avail > 0) {
             if (!ReadConsoleInputW(hin_, rec, 64, &got)) break;
             for (DWORD i = 0; i < got; i++) {
+                if (rec[i].EventType == WINDOW_BUFFER_SIZE_EVENT) { g_resized = 1; continue; }
                 if (rec[i].EventType != KEY_EVENT || !rec[i].Event.KeyEvent.bKeyDown) continue;
                 wchar_t w = rec[i].Event.KeyEvent.uChar.UnicodeChar;
                 if (w <= 0 || w >= 128) continue;
@@ -810,8 +825,8 @@ private:
         c = ws.ws_col; r = ws.ws_row;
         return true;
     }
-    int term_cols_ = 0, term_rows_ = 0;           // the size resized() last saw
 #endif
+    int term_cols_ = 0, term_rows_ = 0;           // the size resized() last saw
     int cols_ = 0, rows_ = 0;
     std::string keys_;                            // keys pressed, not yet read
     clk::time_point start_ = clk::now();

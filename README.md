@@ -77,7 +77,7 @@ The scene program also has `--loop` (keep going after its 24 seconds, no restart
   again at the new size, every scene is set up again for it, the clock and any fade carry
   on, and the screen is cleared and redrawn. A terminal smaller than the minimum is not
   followed. With `--cols` or `--rows` that dimension stays as you gave it. On Linux this
-  uses the terminal's resize signal (`SIGWINCH`); see Windows below.
+  uses the terminal's resize signal (`SIGWINCH`), on Windows the console's window-size event.
 - Minimum size is 40 x 20 characters. Output is about 0.7 MiB/s at 150 x 60, 30 fps,
   in colour for the thunderstorm, and grows with `--fps`.
 - The status bar at the bottom shows the scene, the time and `actual/target fps`,
@@ -103,8 +103,9 @@ uses the Windows console API instead of termios and poll). It needs **Windows 10
 later**; Windows Terminal is the best place to run it. It builds cleanly, with no
 warnings, with Visual Studio 2026 (MSVC 14.51, x64), and every scene prints a correct
 frame with `--still`. The live animation in the Windows console has not been tested yet; report
-any problem. Resizing the window while the program runs is not followed on Windows yet
-(restart the program); it is Linux only for now.
+any problem. Resizing the window while the program runs is followed there through the
+console's window-size event (the same as the Linux signal), but that has not been tested on
+Windows yet either.
 
 - **Visual C++ (easiest):** run `build.bat` from a normal Command Prompt or
   PowerShell (or double-click it). It finds Visual Studio itself (2019 or later,
