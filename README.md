@@ -102,10 +102,11 @@ The code also has a Windows branch (`#ifdef _WIN32` in `vtscreen/vtscreen.h`, wh
 uses the Windows console API instead of termios and poll). It needs **Windows 10 or
 later**; Windows Terminal is the best place to run it. It builds cleanly, with no
 warnings, with Visual Studio 2026 (MSVC 14.51, x64), and every scene prints a correct
-frame with `--still`. The live animation in the Windows console has not been tested yet; report
-any problem. Resizing the window while the program runs is followed there through the
-console's window-size event (the same as the Linux signal), but that has not been tested on
-Windows yet either.
+frame with `--still`. The live animation has been run in Windows Terminal (PowerShell) at
+high resolution: it runs smoothly, the scene keys work, and resizing the window while the
+program runs is followed, even during a fade, through the console's window-size event (the
+same as the Linux signal). Quitting with q puts the console back as it was. Other Windows
+consoles have not been tried; report any problem.
 
 - **Visual C++ (easiest):** run `build.bat` from a normal Command Prompt or
   PowerShell (or double-click it). It finds Visual Studio itself (2019 or later,
