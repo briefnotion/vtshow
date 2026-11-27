@@ -12,8 +12,17 @@ if [ ! -f vtscreen/vtscreen.h ]; then
     exit 1
 fi
 
+# vtpen (a second submodule) draws line art over the letters on terminals that can show Sixel pictures. A scene that
+# uses it needs only its headers on the include path; without them the scenes are letters only, as they always were.
+if [ -f vtpen/include/vtpen.h ]; then
+    PEN="-Ivtpen/include"
+else
+    PEN=""
+    echo "note: vtpen is missing, so scenes are letters only. For the line art run:  git submodule update --init" >&2
+fi
+
 SCENES="bonfire moonphases starburst singularity thunderstorm meadow matrix"
-FLAGS="-O2 -std=c++17"
+FLAGS="-O2 -std=c++17 $PEN"
 case "$(uname -s)" in
     MINGW*) FLAGS="$FLAGS -static" ;;    # MSYS2 MinGW-w64 on Windows: no DLLs needed to run
 esac

@@ -35,14 +35,51 @@
 #include <string>
 #include <vector>
 
+#include "../images.h"
 #include "../scenes.h"
 #include "../vtscreen/vtscreen.h"
+
+// Line art drawn over the letters, with vtpen, when the terminal can show Sixel pictures (see ../images.h).
+// Without vtpen's headers on the include path, or with a vtscreen that has no pictures made of pixels, the
+// scene is exactly what it was: letters only.
+#if defined(VTSCREEN_IMAGES) && __has_include("vtpen.h")
+#define MOON_PEN 1
+#include "vtpen.h"
+#endif
 
 using vtscreen::Picture;
 
 namespace {
 
 static const double DURATION = 24.0;
+#ifdef MOON_PEN
+// How many times a second the line art over the letters is drawn again (it costs bytes every time: see overlay()).
+// The environment variable VTSHOW_PEN_FPS tries another value without compiling.
+static const double PEN_FPS_DEFAULT = 15.0;
+static double pen_fps() {
+    static const double v = [] {
+        const char* e = std::getenv("VTSHOW_PEN_FPS");
+        const double x = e ? std::atof(e) : 0.0;
+        return x > 0.0 ? std::min(x, 240.0) : PEN_FPS_DEFAULT;
+    }();
+    return v;
+}
+// How soft the lines' edges are (vtpen's set_edge_levels): 1 is hard edges (smallest), 4 is the smoothest. Every step costs
+// bytes: 2 is about a third smaller than 4 and still looks smooth. VTSHOW_PEN_AA=N tries another value.
+static int pen_edge_levels() {
+    static const int v = [] { const char* e = std::getenv("VTSHOW_PEN_AA"); const int x = e ? std::atoi(e) : 0; return x > 0 ? std::min(x, 8) : 2; }();
+    return v;
+}
+// How often a letter under the line art may change (vtscreen's ImagePlacement::letter_rate). A letter written into a cell
+// takes that cell's pixels with it, so a shimmering letter under a line means the line's piece is sent again each time.
+// -1 lets them change as often as the scene says (the best looks, the most bytes). A rate holds the cells back so each one
+// changes only that many times a second: it saves bytes, but the cells under a line show the moon a little late, and a very
+// low rate shows stale patches. VTSHOW_PEN_LETTERS=N tries a rate (a number of 0 or more), -1 for free.
+static double pen_letter_rate() {
+    static const double v = [] { const char* e = std::getenv("VTSHOW_PEN_LETTERS"); return e ? std::atof(e) : -1.0; }();
+    return v;
+}
+#endif
 // The sky. The moon is seen from the northern hemisphere at its highest point (due south of
 // the zenith), so "up" on screen is celestial north. The moon's own north pole points
 // (nearly) at the north pole of the ecliptic, which leans away from celestial north by up to
@@ -332,12 +369,27 @@ public:
         R = rows;
         Rm = std::min(cols * 0.27, rows * 2.0 * 0.34);   // radius in column widths
         build_face();
+#ifdef MOON_PEN
+        canvas_.reset();
+        raster_.reset();
+        pen_step_ = -1;
+#endif
     }
     void frame(double t, Picture& F) override;
 
 private:
     int C = 0, R = 0;
     double Rm = 1;
+
+#ifdef MOON_PEN
+    // The line art: the limb, a graticule on the face, the terminator, the moon's axis, and the sun going round its
+    // orbit. It is drawn into a canvas the size of the block of cells round the moon, and handed to the Picture as pixels.
+    void overlay(double t, double phi, double theta, double mcx, double mcy, Picture& F);
+    long pen_step_ = -1;                       // which redraw of the line art the raster holds
+    std::unique_ptr<vtpen::Canvas> canvas_;
+    std::shared_ptr<vtscreen::Raster> raster_;
+    int pen_cw_ = 0, pen_ch_ = 0, pen_row0_ = 0, pen_col0_ = 0, pen_rows_ = 0, pen_cols_ = 0;
+#endif
 };
 
 static const char* phase_name(double p) {          // p: 0 new .. 0.5 full .. 1 new
@@ -350,6 +402,140 @@ static const char* phase_name(double p) {          // p: 0 new .. 0.5 full .. 1 
     if (p < 0.78) return "last quarter";
     return "waning crescent";
 }
+
+#ifdef MOON_PEN
+void Moonphases::overlay(double t, double phi, double theta, double mcx, double mcy, Picture& F) {
+    const int cw = vtscreen::g_image_cell_w, ch = vtscreen::g_image_cell_h;
+    if (cw <= 0 || ch <= 0) return;                          // the terminal cannot show pictures: letters only
+
+    // The block of cells round the moon. The moon only drifts a little, so the block stays where it is.
+    const double reach = 1.32 * Rm;                          // in column widths, from the middle
+    const int col0 = std::max(0, (int)std::floor(C * 0.5 - reach - C * 0.035) - 1);
+    const int col1 = std::min(C - 1, (int)std::ceil(C * 0.5 + reach + C * 0.035) + 1);
+    const int row0 = std::max(0, (int)std::floor(R * 0.5 - reach / 2 - R * 0.025) - 1);
+    const int row1 = std::min(R - 1, (int)std::ceil(R * 0.5 + reach / 2 + R * 0.025) + 1);
+    const int cols = col1 - col0 + 1, rows = row1 - row0 + 1;
+    if (cols < 1 || rows < 1) return;
+    if (!canvas_ || pen_cw_ != cw || pen_ch_ != ch || pen_cols_ != cols || pen_rows_ != rows || pen_col0_ != col0 || pen_row0_ != row0) {
+        canvas_ = std::make_unique<vtpen::Canvas>(cols * cw, rows * ch);      // transparent: pixels not drawn on stay empty
+        raster_ = std::make_shared<vtscreen::Raster>();
+        raster_->init(cols * cw, rows * ch);
+        pen_cw_ = cw; pen_ch_ = ch; pen_cols_ = cols; pen_rows_ = rows; pen_col0_ = col0; pen_row0_ = row0;
+    }
+    // Every line moves a little every frame (the moon drifts, the sun goes round), so redrawing them every frame sends every
+    // cell they cross every frame. They are drawn PEN_FPS times a second instead, and the frames in between keep the picture.
+    const long step = (long)std::floor(t * pen_fps());
+    if (step == pen_step_) { F.place_image(raster_, row0, col0, pen_letter_rate()); return; }
+    pen_step_ = step;
+
+    vtpen::Canvas& c = *canvas_;
+    c.clear();
+
+    // The moon's disc in pixels. The letters treat a row as two column widths, so the disc is as wide as Rm columns and
+    // Rm / 2 rows tall, and the pixels follow that exactly.
+    const double cx = (mcx - col0) * cw, cy = (mcy - row0) * ch;
+    const double rx = Rm * cw, ry = Rm * ch * 0.5;
+    auto P = [&](double u, double v) { return vtpen::Point{cx + u * rx, cy + v * ry}; };
+    const double cT = std::cos(theta), sT = std::sin(theta);
+    const double sn = std::sin(phi), cs = std::cos(phi);
+    const double Lx = sn * cT, Ly = -sn * sT, Lz = -cs;     // the light, as in frame()
+
+    c.set_edge_levels(pen_edge_levels());
+
+    // The graticule: lines of latitude and longitude on the face, turned with it. Only the side facing us.
+    auto face = [&](double lat_deg, double lon_deg, double& u, double& v, double& pz) {
+        const double la = lat_deg * M_PI / 180.0, lo = lon_deg * M_PI / 180.0;
+        const double uf = std::cos(la) * std::sin(lo), vf = -std::sin(la);
+        pz = std::cos(la) * std::cos(lo);
+        u = uf * cT + vf * sT;
+        v = -uf * sT + vf * cT;
+    };
+    auto trace = [&](bool meridian, double fixed) {
+        std::vector<vtpen::Point> run;
+        for (int k = -90; k <= 90; k += 3) {
+            double u, v, pz;
+            if (meridian) face(k, fixed, u, v, pz); else face(fixed, k, u, v, pz);
+            if (pz > 0.01) run.push_back(P(u, v));
+            else { if (run.size() > 1) c.polyline(run); run.clear(); }
+        }
+        if (run.size() > 1) c.polyline(run);
+    };
+    c.set_colour({105, 135, 200});
+    c.set_thickness(1.0);
+    for (int g = -60; g <= 60; g += 30) { trace(true, g); trace(false, g); }
+
+    // The limb.
+    c.set_colour({215, 225, 255});
+    c.set_thickness(1.0);
+    c.ellipse(cx, cy, rx, ry);
+
+    // The terminator: the great circle at right angles to the light, the half we can see.
+    double ax = Ly, ay = -Lx, az = 0.0;                      // a = L x (0, 0, 1)
+    const double an = std::hypot(ax, ay);
+    if (an < 1e-3) { ax = 1.0; ay = 0.0; } else { ax /= an; ay /= an; }
+    const double bx = Ly * az - Lz * ay, by = Lz * ax - Lx * az, bz = Lx * ay - Ly * ax;   // b = L x a
+    {
+        c.set_colour({255, 238, 170});
+        c.set_thickness(2.0);
+        std::vector<vtpen::Point> run;
+        for (int k = 0; k <= 360; k += 3) {
+            const double a = k * M_PI / 180.0;
+            const double px = std::cos(a) * ax + std::sin(a) * bx, py = std::cos(a) * ay + std::sin(a) * by;
+            const double pz = std::cos(a) * az + std::sin(a) * bz;
+            if (pz >= -0.002) run.push_back(P(px, py));
+            else { if (run.size() > 1) c.polyline(run); run.clear(); }
+        }
+        if (run.size() > 1) c.polyline(run);
+    }
+
+    // The axis: short ticks beyond the limb, the north one longer.
+    c.set_colour({150, 175, 235});
+    c.set_thickness(1.0);
+    c.line(P(-sT * 1.03, -cT * 1.03), P(-sT * 1.20, -cT * 1.20));
+    c.line(P(sT * 1.03, cT * 1.03), P(sT * 1.10, cT * 1.10));
+
+    // The sun's orbit, seen from a little above (dashes), and the sun on it, with its rays.
+    const double tilt = 25.0 * M_PI / 180.0, ring = 1.28;
+    auto orbit = [&](double ph, double& u, double& v) {
+        const double ox = std::sin(ph) * cT, oy = -std::sin(ph) * sT, oz = -std::cos(ph);
+        u = ring * ox;
+        v = ring * (oy * std::cos(tilt) + oz * std::sin(tilt));
+    };
+    c.set_colour({90, 110, 170});
+    c.set_thickness(1.0);
+    for (int k = 0; k < 360; k += 10) {
+        double u0, v0, u1, v1, um, vm;
+        orbit(k * M_PI / 180.0, u0, v0);
+        orbit((k + 3) * M_PI / 180.0, um, vm);
+        orbit((k + 6) * M_PI / 180.0, u1, v1);
+        c.polyline({P(u0, v0), P(um, vm), P(u1, v1)});
+    }
+    double su, sv;
+    orbit(phi, su, sv);
+    const vtpen::Point sun = P(su, sv);
+    const double sr = std::max(4.0, 0.045 * Rm * cw);
+    c.set_colour({255, 215, 90});
+    c.set_thickness(1.5);
+    c.circle(sun.x, sun.y, sr);
+    for (int k = 0; k < 8; k++) {
+        const double a = k * M_PI / 4.0 + phi;               // the rays turn slowly
+        c.line({sun.x + std::cos(a) * sr * 1.5, sun.y + std::sin(a) * sr * 1.5}, {sun.x + std::cos(a) * sr * 2.5, sun.y + std::sin(a) * sr * 2.5});
+    }
+    c.set_colour({150, 125, 60});
+    c.set_thickness(1.0);                                    // a thin line of light toward the moon
+    c.line(sun, {cx + su * rx * 0.2, cy + sv * ry * 0.2});
+
+    // Over to vtscreen: a pixel the canvas did not draw on is empty.
+    const vtpen::Rgb bg = c.background();
+    for (int y = 0; y < raster_->h; y++) {
+        const vtpen::Rgb* src = c.row(y);
+        vtscreen::Pixel* dst = &raster_->at(0, y);
+        for (int x = 0; x < raster_->w; x++)
+            dst[x] = src[x] == bg ? vtscreen::Pixel() : vtscreen::Pixel{src[x].r, src[x].g, src[x].b, 255};
+    }
+    F.place_image(raster_, row0, col0, pen_letter_rate());
+}
+#endif
 
 void Moonphases::frame(double t, Picture& F) {
     F.init(R, C);
@@ -467,6 +653,9 @@ void Moonphases::frame(double t, Picture& F) {
     F.text(1, 0, buf);
     std::snprintf(buf, sizeof buf, "day %4.1f of 29.5", p * 29.5);
     F.text(2, 0, buf);
+#ifdef MOON_PEN
+    overlay(t, phi, theta, mcx, mcy, F);
+#endif
 }
 
 }  // namespace
@@ -475,6 +664,7 @@ std::unique_ptr<vtscreen::Scene> make_moonphases() { return std::make_unique<Moo
 
 #ifndef VTSHOW_NO_MAIN
 int main(int argc, char** argv) {
+    vtshow_enable_images();
     Moonphases scene;
     return vtscreen::run(scene, argc, argv);
 }

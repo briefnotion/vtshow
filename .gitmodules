@@ -1,3 +1,6 @@
 [submodule "vtscreen"]
 	path = vtscreen
 	url = https://github.com/briefnotion/vtscreen.git
+[submodule "vtpen"]
+	path = vtpen
+	url = https://github.com/briefnotion/vtpen.git

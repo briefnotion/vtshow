@@ -64,9 +64,9 @@ Requirements: Linux, `g++` with C++17 support, `git`, and a terminal. Nothing el
     cd vtshow
     ./build.sh
 
-The library comes as a submodule, which `--recursive` fetches. If you cloned without it, or
-`vtscreen/` is empty, run `git submodule update --init`; after a `git pull` that changes the
-library, run `git submodule update`.
+The libraries come as submodules, which `--recursive` fetches. If you cloned without them, or
+`vtscreen/` or `vtpen/` is empty, run `git submodule update --init`; after a `git pull` that changes
+a library, run `git submodule update`.
 
     ./bonfire/bonfire --loop               one scene on its own (also moonphases, starburst, singularity, thunderstorm, meadow, matrix)
     ./show/show                            the show (q quits, n or space: next scene,
@@ -129,6 +129,23 @@ consoles have not been tried; report any problem.
   little from Linux and MinGW, because the standard library's random distributions
   are not the same everywhere.
 - On Cygwin or WSL it is treated as Linux and needs no changes.
+
+## Line art over the letters (Sixel)
+
+On a terminal that can show Sixel pictures (Windows Terminal 1.22 and later, xterm with Sixel on, foot, WezTerm,
+iTerm2 and others) the moon is also drawn as thin vector line art over its letters: the outline, a grid of latitude and
+longitude that turns with the moon, the line between light and dark, the moon's axis, and the sun going round a dashed
+orbit. The lines come from [vtpen](https://github.com/briefnotion/vtpen), the second submodule, and are drawn as pixels
+by vtscreen's picture layer. The programs ask the terminal at start-up (about a moment) whether it can; if it cannot, or
+vtpen is missing, or you set `VTSHOW_NO_IMAGES=1`, everything is the letters it always was. `--no-color` also leaves the
+lines out.
+
+The lines cost bytes: about 1 MB/s at 100 x 40 and 1.4 MB/s at 209 x 51, on top of the letters' 0.3 MB/s, which is
+fine on a local network and heavy on a slow link. Settings for trying other values: `VTSHOW_PEN_FPS` (how often the
+lines are drawn again, default 15), `VTSHOW_PEN_AA` (edge softness 1 to 8, default 2), and `VTSHOW_PEN_LETTERS` (how
+often a letter under a line may change: -1 the default, any number from 0 a limit per second; low values show the
+moon a little late). The build looks for vtpen's headers in `vtpen/include` (see `build.sh`); on Windows (`build.bat`)
+the scenes are letters only.
 
 ## The library
 

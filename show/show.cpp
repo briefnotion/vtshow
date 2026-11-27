@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "../images.h"
 #include "../scenes.h"
 
 // A scene on screen on its own, before the next fade starts, and the length of the
@@ -56,6 +57,7 @@ int main(int argc, char** argv) {
     }
     int cols, rows;
     if (!vtscreen::resolve_size(o, cols, rows)) return 1;
+    vtshow_enable_images();                    // scenes may draw pictures made of pixels where the terminal can show them
 
     std::vector<std::unique_ptr<vtscreen::Scene>> scenes;
     scenes.push_back(make_bonfire());
