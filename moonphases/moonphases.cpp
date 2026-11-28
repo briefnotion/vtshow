@@ -39,13 +39,11 @@
 #include "../scenes.h"
 #include "../vtscreen/vtscreen.h"
 
-// Line art drawn over the letters, with vtpen, when the terminal can show Sixel pictures (see ../images.h).
-// Without vtpen's headers on the include path, or with a vtscreen that has no pictures made of pixels, the
-// scene is exactly what it was: letters only.
-#if defined(VTSCREEN_IMAGES) && __has_include("vtpen.h") && __has_include("vtpen_drawing.h")
+// Line art drawn over the letters, described with vtpen as a Drawing of shapes. The Display shows it the way the terminal
+// does best: as ReGIS lines, or as pixels on a terminal with Sixel only (see ../images.h). Without vtpen's headers on the
+// include path, or with a vtscreen that has no drawings made of shapes, the scene is exactly what it was: letters only.
+#if defined(VTSCREEN_VECTORS)
 #define MOON_PEN 1
-#include "vtpen.h"
-#include "vtpen_drawing.h"
 #endif
 
 using vtscreen::Picture;
@@ -65,13 +63,9 @@ static double pen_fps() {
     }();
     return v;
 }
-// How soft the lines' edges are (vtpen's set_edge_levels): 1 is hard edges (smallest), 4 is the smoothest. Every step costs
-// bytes: 2 is about a third smaller than 4 and still looks smooth. VTSHOW_PEN_AA=N tries another value.
-static int pen_edge_levels() {
-    static const int v = [] { const char* e = std::getenv("VTSHOW_PEN_AA"); const int x = e ? std::atoi(e) : 0; return x > 0 ? std::min(x, 8) : 2; }();
-    return v;
-}
-// How often a letter under the line art may change (vtscreen's ImagePlacement::letter_rate). A letter written into a cell
+// How soft the lines' edges are when they are shown as pixels is VTSHOW_PEN_AA (see ../images.h).
+// How often a letter under the line art may change (vtscreen's ImagePlacement::letter_rate), when it is shown as pixels
+// (as ReGIS the line art is drawn again whenever a letter under it is written). A letter written into a cell
 // takes that cell's pixels with it, so a shimmering letter under a line means the line's piece is sent again each time.
 // -1 lets them change as often as the scene says (the best looks, the most bytes). A rate holds the cells back so each one
 // changes only that many times a second: it saves bytes, but the cells under a line show the moon a little late, and a very
@@ -371,8 +365,7 @@ public:
         Rm = std::min(cols * 0.27, rows * 2.0 * 0.34);   // radius in column widths
         build_face();
 #ifdef MOON_PEN
-        canvas_.reset();
-        raster_.reset();
+        drawing_.reset();
         pen_step_ = -1;
 #endif
     }
@@ -384,11 +377,10 @@ private:
 
 #ifdef MOON_PEN
     // The line art: the limb, a graticule on the face, the terminator, the moon's axis, and the sun going round its
-    // orbit. It is drawn into a canvas the size of the block of cells round the moon, and handed to the Picture as pixels.
+    // orbit. It is described as a Drawing (in pixels of the block of cells round the moon) and handed to the Picture.
     void overlay(double t, double phi, double theta, double mcx, double mcy, Picture& F);
-    long pen_step_ = -1;                       // which redraw of the line art the raster holds
-    std::unique_ptr<vtpen::Canvas> canvas_;
-    std::shared_ptr<vtscreen::Raster> raster_;
+    long pen_step_ = -1;                       // which redraw of the line art the drawing is
+    std::shared_ptr<const vtpen::Drawing> drawing_;
     int pen_cw_ = 0, pen_ch_ = 0, pen_row0_ = 0, pen_col0_ = 0, pen_rows_ = 0, pen_cols_ = 0;
 #endif
 };
@@ -406,7 +398,7 @@ static const char* phase_name(double p) {          // p: 0 new .. 0.5 full .. 1 
 
 #ifdef MOON_PEN
 void Moonphases::overlay(double t, double phi, double theta, double mcx, double mcy, Picture& F) {
-    const int cw = vtscreen::g_image_cell_w, ch = vtscreen::g_image_cell_h;
+    const int cw = vtscreen::vector_cell_w(), ch = vtscreen::vector_cell_h();
     if (cw <= 0 || ch <= 0) return;                          // the terminal cannot show pictures: letters only
 
     // The block of cells round the moon. The moon only drifts a little, so the block stays where it is.
@@ -417,24 +409,20 @@ void Moonphases::overlay(double t, double phi, double theta, double mcx, double 
     const int row1 = std::min(R - 1, (int)std::ceil(R * 0.5 + reach / 2 + R * 0.025) + 1);
     const int cols = col1 - col0 + 1, rows = row1 - row0 + 1;
     if (cols < 1 || rows < 1) return;
-    if (!canvas_ || pen_cw_ != cw || pen_ch_ != ch || pen_cols_ != cols || pen_rows_ != rows || pen_col0_ != col0 || pen_row0_ != row0) {
-        canvas_ = std::make_unique<vtpen::Canvas>(cols * cw, rows * ch);      // transparent: pixels not drawn on stay empty
-        raster_ = std::make_shared<vtscreen::Raster>();
-        raster_->init(cols * cw, rows * ch);
+    if (!drawing_ || pen_cw_ != cw || pen_ch_ != ch || pen_cols_ != cols || pen_rows_ != rows || pen_col0_ != col0 || pen_row0_ != row0) {
+        drawing_.reset();
+        pen_step_ = -1;
         pen_cw_ = cw; pen_ch_ = ch; pen_cols_ = cols; pen_rows_ = rows; pen_col0_ = col0; pen_row0_ = row0;
     }
     // Every line moves a little every frame (the moon drifts, the sun goes round), so redrawing them every frame sends every
     // cell they cross every frame. They are drawn PEN_FPS times a second instead, and the frames in between keep the picture.
     const long step = (long)std::floor(t * pen_fps());
-    if (step == pen_step_) { F.place_image(raster_, row0, col0, pen_letter_rate()); return; }
+    if (drawing_ && step == pen_step_) { F.place_drawing(drawing_, row0, col0, rows, cols, pen_letter_rate()); return; }
     pen_step_ = step;
 
-    // The lines are described to a Drawing (shapes in pixel units of the block, here) and replayed onto the canvas, which holds
-    // the pixels. The same Drawing could as well be shown some other way.
-    vtpen::Canvas& cv = *canvas_;
-    cv.set_edge_levels(pen_edge_levels());
-    cv.clear();
-    vtpen::Drawing c(cols * cw, rows * ch);
+    // The lines are described to a Drawing, in pixels of the block of cells. The Display shows it as ReGIS or as pixels.
+    auto drawing = std::make_shared<vtpen::Drawing>(cols * cw, rows * ch);
+    vtpen::Drawing& c = *drawing;
 
     // The moon's disc in pixels. The letters treat a row as two column widths, so the disc is as wide as Rm columns and
     // Rm / 2 rows tall, and the pixels follow that exactly.
@@ -528,16 +516,8 @@ void Moonphases::overlay(double t, double phi, double theta, double mcx, double 
     c.set_thickness(1.0);                                    // a thin line of light toward the moon
     c.line(sun, {cx + su * rx * 0.2, cy + sv * ry * 0.2});
 
-    // Over to vtscreen: a pixel the canvas did not draw on is empty.
-    c.draw(cv);
-    const vtpen::Rgb bg = cv.background();
-    for (int y = 0; y < raster_->h; y++) {
-        const vtpen::Rgb* src = cv.row(y);
-        vtscreen::Pixel* dst = &raster_->at(0, y);
-        for (int x = 0; x < raster_->w; x++)
-            dst[x] = src[x] == bg ? vtscreen::Pixel() : vtscreen::Pixel{src[x].r, src[x].g, src[x].b, 255};
-    }
-    F.place_image(raster_, row0, col0, pen_letter_rate());
+    drawing_ = drawing;
+    F.place_drawing(drawing_, row0, col0, rows, cols, pen_letter_rate());
 }
 #endif
 

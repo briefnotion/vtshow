@@ -130,22 +130,31 @@ consoles have not been tried; report any problem.
   are not the same everywhere.
 - On Cygwin or WSL it is treated as Linux and needs no changes.
 
-## Line art over the letters (Sixel)
+## Line art over the letters (ReGIS or Sixel)
 
-On a terminal that can show Sixel pictures (Windows Terminal 1.22 and later, xterm with Sixel on, foot, WezTerm,
-iTerm2 and others) the moon is also drawn as thin vector line art over its letters: the outline, a grid of latitude and
-longitude that turns with the moon, the line between light and dark, the moon's axis, and the sun going round a dashed
-orbit. The lines come from [vtpen](https://github.com/briefnotion/vtpen), the second submodule, and are drawn as pixels
-by vtscreen's picture layer. The programs ask the terminal at start-up (about a moment) whether it can; if it cannot, or
-vtpen is missing, or you set `VTSHOW_NO_IMAGES=1`, everything is the letters it always was. `--no-color` also leaves the
-lines out.
+On a terminal that can show pictures the moon is also drawn as thin vector line art over its letters: the outline, a grid of
+latitude and longitude that turns with the moon, the line between light and dark, the moon's axis, and the sun going round a
+dashed orbit. The scene describes the lines as a [vtpen](https://github.com/briefnotion/vtpen) `Drawing` of shapes and hands it
+to vtscreen, whose Display shows it the way the terminal does best: as **ReGIS** lines on a terminal that lists ReGIS (xterm
+built with `--enable-regis-graphics`, run as a VT340: `xterm -ti 340`; also VT125, VT240, VT340 hardware, untried), else as
+**Sixel** pixels (Windows Terminal 1.22 and later, xterm with Sixel on, foot, WezTerm, iTerm2 and others). The programs ask the
+terminal at start-up (about a moment) what it can do; if it can do neither, or vtpen is missing, or you set `VTSHOW_NO_IMAGES=1`,
+everything is the letters it always was. `--no-color` also leaves the lines out. `VTSHOW_NO_REGIS=1` keeps them as Sixel pixels
+on a terminal that does both (to compare).
 
-The lines cost bytes: about 1 MB/s at 100 x 40 and 1.4 MB/s at 209 x 51, on top of the letters' 0.3 MB/s, which is
-fine on a local network and heavy on a slow link. Settings for trying other values: `VTSHOW_PEN_FPS` (how often the
-lines are drawn again, default 15), `VTSHOW_PEN_AA` (edge softness 1 to 8, default 2), and `VTSHOW_PEN_LETTERS` (how
-often a letter under a line may change: -1 the default, any number from 0 a limit per second; low values show the
-moon a little late). The build looks for vtpen's headers in `vtpen/include` (see `build.sh`); on Windows (`build.bat`)
-the scenes are letters only.
+A pixel picture costs bytes in proportion to the cells the lines cross: about 1 MB/s at 100 x 40 and 1.4 MB/s at 209 x 51, on top
+of the letters' 0.3 MB/s. ReGIS lines cost about a quarter of that (measured on the moon at 30 frames a second: 100 columns,
+929 KB/s as Sixel against 385 KB/s as ReGIS, 177 KB/s of that the letters). Settings for trying other values: `VTSHOW_PEN_FPS` (how
+often the lines are drawn again, default 15), `VTSHOW_PEN_AA` (edge softness of pixel lines, 1 to 8, default 2) and
+`VTSHOW_PEN_LETTERS` (how often a letter under a pixel line may change: -1 the default, any number from 0 a limit per second; low
+values show the moon a little late; not used for ReGIS).
+
+What to know about ReGIS in xterm: it is drawn from the top left of the window, never stretched, and no bigger than xterm's
+`maxGraphicSize` (1000 x 1000 by default; the moon is in the middle of the window, so a window wider than that needs it raised, for
+example `xterm -xrm 'XTerm*maxGraphicSize: 1920x1080' -xrm 'XTerm*regisScreenSize: 1920x1080'`); a letter written into a cell takes
+that cell's ReGIS pixels with it, so the lines are drawn again whenever letters under them change; and scrolling with a ReGIS picture
+on screen is slow. The build looks for vtpen's headers in `vtpen/include` (see `build.sh`); on Windows (`build.bat`) the scenes
+are letters only.
 
 ## The library
 
