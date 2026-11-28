@@ -42,9 +42,10 @@
 // Line art drawn over the letters, with vtpen, when the terminal can show Sixel pictures (see ../images.h).
 // Without vtpen's headers on the include path, or with a vtscreen that has no pictures made of pixels, the
 // scene is exactly what it was: letters only.
-#if defined(VTSCREEN_IMAGES) && __has_include("vtpen.h")
+#if defined(VTSCREEN_IMAGES) && __has_include("vtpen.h") && __has_include("vtpen_drawing.h")
 #define MOON_PEN 1
 #include "vtpen.h"
+#include "vtpen_drawing.h"
 #endif
 
 using vtscreen::Picture;
@@ -428,8 +429,12 @@ void Moonphases::overlay(double t, double phi, double theta, double mcx, double 
     if (step == pen_step_) { F.place_image(raster_, row0, col0, pen_letter_rate()); return; }
     pen_step_ = step;
 
-    vtpen::Canvas& c = *canvas_;
-    c.clear();
+    // The lines are described to a Drawing (shapes in pixel units of the block, here) and replayed onto the canvas, which holds
+    // the pixels. The same Drawing could as well be shown some other way.
+    vtpen::Canvas& cv = *canvas_;
+    cv.set_edge_levels(pen_edge_levels());
+    cv.clear();
+    vtpen::Drawing c(cols * cw, rows * ch);
 
     // The moon's disc in pixels. The letters treat a row as two column widths, so the disc is as wide as Rm columns and
     // Rm / 2 rows tall, and the pixels follow that exactly.
@@ -439,8 +444,6 @@ void Moonphases::overlay(double t, double phi, double theta, double mcx, double 
     const double cT = std::cos(theta), sT = std::sin(theta);
     const double sn = std::sin(phi), cs = std::cos(phi);
     const double Lx = sn * cT, Ly = -sn * sT, Lz = -cs;     // the light, as in frame()
-
-    c.set_edge_levels(pen_edge_levels());
 
     // The graticule: lines of latitude and longitude on the face, turned with it. Only the side facing us.
     auto face = [&](double lat_deg, double lon_deg, double& u, double& v, double& pz) {
@@ -526,9 +529,10 @@ void Moonphases::overlay(double t, double phi, double theta, double mcx, double 
     c.line(sun, {cx + su * rx * 0.2, cy + sv * ry * 0.2});
 
     // Over to vtscreen: a pixel the canvas did not draw on is empty.
-    const vtpen::Rgb bg = c.background();
+    c.draw(cv);
+    const vtpen::Rgb bg = cv.background();
     for (int y = 0; y < raster_->h; y++) {
-        const vtpen::Rgb* src = c.row(y);
+        const vtpen::Rgb* src = cv.row(y);
         vtscreen::Pixel* dst = &raster_->at(0, y);
         for (int x = 0; x < raster_->w; x++)
             dst[x] = src[x] == bg ? vtscreen::Pixel() : vtscreen::Pixel{src[x].r, src[x].g, src[x].b, 255};
